@@ -1,0 +1,21 @@
+# R
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+.Renviron
+.Rprofile
+
+# Large Data Files
+*.rds
+*.csv
+*.parquet
+*.duckdb
+data/
+
+# Targets
+_targets/
+_targets.user/
+
+# OS
+.DS_Store
