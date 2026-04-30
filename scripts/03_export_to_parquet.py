@@ -2,56 +2,62 @@ import torch
 from torch.utils.data import IterableDataset, DataLoader
 import pyarrow.dataset as ds
 import numpy as np
+import math
 
 class WaterDataset(IterableDataset):
-    def __init__(self, data_dir="data/windows/", batch_size=1024):
+    def __init__(self, data_dir="data/windows/", batch_size=2048):
         super().__init__()
-        # Use pyarrow dataset for lazy loading
+        self.data_dir = data_dir
         self.dataset = ds.dataset(data_dir, format="parquet")
         self.batch_size = batch_size
 
     def __iter__(self):
-        # Iterate over the dataset in batches
-        for batch in self.dataset.to_batches(batch_size=self.batch_size):
-            df = batch.to_pandas()
+        worker_info = torch.utils.data.get_worker_info()
+        all_files = self.dataset.files
+        
+        if worker_info is None:
+            files = all_files
+        else:
+            # Shard files across workers
+            per_worker = int(math.ceil(len(all_files) / float(worker_info.num_workers)))
+            worker_id = worker_info.id
+            iter_start = worker_id * per_worker
+            iter_end = min(iter_start + per_worker, len(all_files))
+            files = all_files[iter_start:iter_end]
+            
+        if not files:
+            return
 
-            # x is a list of arrays in pandas, we need to stack them
-            x_list = df["x"].tolist()
-            c_in_list = df["c_in"].tolist()
-            c_out_list = df["c_out"].tolist()
-
-            # Convert to tensors
-            x = torch.tensor(np.stack(x_list), dtype=torch.float32)
-            c_in = torch.tensor(np.stack(c_in_list), dtype=torch.float32)
-            c_out = torch.tensor(np.stack(c_out_list), dtype=torch.float32)
-
-            # PyTorch expects shape [Batch, Channels, Sequence_Length]
-            # So we add a channel dimension for x: [B, 1, 96]
-            x = x.unsqueeze(1)
-
-            # Yield single samples instead of batches if DataLoader is used with batch_size, 
-            # but since we already batched using PyArrow, we can yield batches directly if DataLoader batch_size=None
+        worker_ds = ds.dataset(files, format="parquet")
+        
+        for batch in worker_ds.to_batches(batch_size=self.batch_size):
+            # Use to_pylist() for list columns to avoid ArrowInvalid zero-copy errors
+            x_arr = np.array(batch.column("x").to_pylist(), dtype=np.float32)
+            c_in_arr = np.array(batch.column("c_in").to_pylist(), dtype=np.float32)
+            c_out_arr = np.array(batch.column("c_out").to_pylist(), dtype=np.float32)
+            
+            # Convert to torch
+            x = torch.from_numpy(x_arr)
+            if x.ndim == 2: x = x.unsqueeze(1) # Ensure [B, 1, 96]
+            
+            c_in = torch.from_numpy(c_in_arr).view(-1, 9, 96)
+            c_out = torch.from_numpy(c_out_arr).view(-1, 10, 96)
+            
+            # Yield individual samples (Dataloader will re-batch them)
             for i in range(x.shape[0]):
                 yield x[i], c_in[i], c_out[i]
 
 def get_dataloader(data_dir="data/windows/", batch_size=64, num_workers=4):
-    """
-    Returns a DataLoader for the water usage dataset.
-    """
-    # Create the iterable dataset. We use a larger batch size for reading from PyArrow
-    # to be efficient, but the DataLoader will collate them into the requested batch_size.
-    dataset = WaterDataset(data_dir=data_dir, batch_size=2048)
-    
+    dataset = WaterDataset(data_dir=data_dir)
     loader = DataLoader(
         dataset,
         batch_size=batch_size,   
         num_workers=num_workers,     
-        pin_memory=False         # MPS doesn't benefit from pinned memory
+        pin_memory=False
     )
     return loader
 
 if __name__ == "__main__":
-    # Test the dataloader
     print("Testing DataLoader...")
     try:
         loader = get_dataloader(batch_size=32, num_workers=0)
@@ -62,4 +68,5 @@ if __name__ == "__main__":
             break
         print("DataLoader works!")
     except Exception as e:
-        print(f"Could not test dataloader (maybe data is missing): {e}")
+        print(f"Could not test dataloader: {e}")
+

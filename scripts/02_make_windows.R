@@ -1,46 +1,49 @@
-library(arrow)
 library(dplyr)
+library(arrow)
 library(purrr)
 library(fs)
+
+source("scripts/utils.R")
 
 # Directories
 in_dir <- "data/features"
 out_dir <- "data/windows"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
-# We want an indoor and outdoor conditioning split
-# c_in: calendar encodings, lagged usage
-# c_out: temp, precip, snow, lagged weather
-indoor_cols <- c(
-  "month_sin", "month_cos", "dow_sin", "dow_cos", "hour_sin", "hour_cos",
-  "usage_1h", "usage_24h", "usage_48h"
-)
-
-outdoor_cols <- c(
-  "temp_c", "precip_mm", "snow_cm", "temp_1h", "temp_24h", "temp_48h",
-  "snow_flag", "precip_3d", "snow_24h", "gdd_7d"
-)
-
-make_windows <- function(df) {
+# Window extraction function
+make_windows <- function(df, window_size = 96) {
   n <- nrow(df)
-  if (n <= 96) return(NULL)
+  if (n < window_size) return(NULL)
   
-  # We extract windows of length 96 for x. 
-  # For c_in and c_out, we use the conditioning variables at the start of the window, 
-  # or at the end of the window. Let's use the features corresponding to the end of the window (i+95).
-  # Wait, usually predicting sequence based on current day's conditioning. Let's use i for simplicity
-  # as per the example in HOW_TO_IMPLEMENT.md:
-  # list(x = df$usage[i:(i+95)], c_in = df[i, indoor_cols], c_out = df[i, outdoor_cols])
+  # Target sequence: usage (x)
+  x_mat <- as.matrix(df$usage)
   
-  res <- purrr::map(1:(n - 95), function(i) {
+  # Conditioning: Indoor (c_in) and Outdoor (c_out)
+  # Based on build_features script:
+  # c_in: month_sin/cos, dow_sin/cos, hour_sin/cos, usage_1h, usage_24h, usage_48h
+  c_in_cols <- c("month_sin", "month_cos", "dow_sin", "dow_cos", "hour_sin", "hour_cos", 
+                 "usage_1h", "usage_24h", "usage_48h")
+                 
+  # c_out: temp_c, precip_mm, snow_cm, temp_1h, temp_24h, temp_48h, snow_flag, precip_3d, snow_24h, gdd_7d
+  c_out_cols <- c("temp_c", "precip_mm", "snow_cm", "temp_1h", "temp_24h", "temp_48h", 
+                  "snow_flag", "precip_3d", "snow_24h", "gdd_7d")
+  
+  c_in_mat <- as.matrix(df[, c_in_cols])
+  c_out_mat <- as.matrix(df[, c_out_cols])
+  
+  # Generate indices for rolling windows
+  idx <- 1:(n - window_size + 1)
+  
+  # Map to list of windows
+  res <- map(idx, function(i) {
     list(
-      x = as.numeric(unlist(df$usage[i:(i+95)])),
-      c_in = as.numeric(unlist(df[i, indoor_cols])),
-      c_out = as.numeric(unlist(df[i, outdoor_cols]))
+      x = x_mat[i:(i + window_size - 1), 1],
+      c_in = t(c_in_mat[i:(i + window_size - 1), ]), # Transpose to [Channels, Seq]
+      c_out = t(c_out_mat[i:(i + window_size - 1), ])
     )
   })
   
-  # Convert list of lists to dataframe
+  # Flatten and return as a tibble with list-columns
   tibble(
     x = map(res, "x"),
     c_in = map(res, "c_in"),
@@ -49,14 +52,23 @@ make_windows <- function(df) {
 }
 
 process_windows <- function() {
-  files <- fs::dir_ls(in_dir, glob = "*.parquet")
-  files <- head(files, 10)
+  # Handle command line arguments for sanity checks
+  args <- commandArgs(trailingOnly = TRUE)
+  limit_idx <- which(args == "--limit")
+  if (length(limit_idx) > 0) {
+    n_limit <- as.numeric(args[limit_idx + 1])
+    files <- head(files, n_limit)
+    cat("Running in SANITY mode: limited to", n_limit, "meters.\n")
+  }
   
   cat("Processing", length(files), "files to generate windows...\n")
   
   batch_count <- 0
   current_batch <- list()
   batch_id <- 1
+  
+  processed_count <- 0
+  total_files <- length(files)
   
   for (f in files) {
     df <- arrow::read_parquet(f)
@@ -66,16 +78,19 @@ process_windows <- function() {
       current_batch[[length(current_batch) + 1]] <- windows_df
     }
     
-    # Check if we should write a batch (e.g., every 5 meters to keep chunk size ~50k windows)
-    # A single meter has ~140k/4/24 ~ maybe many windows. Let's just write meter by meter, 
-    # but append it to a dataset directory with partitioning or just individual files
+    processed_count <- processed_count + 1
     
-    if (length(current_batch) >= 5) {
+    # Check if we should write a batch
+    if (length(current_batch) >= 50) { # Batched every 50 meters
       batch_df <- bind_rows(current_batch)
-      
-      # We write it as a part of a dataset
       out_path <- file.path(out_dir, paste0("part_", sprintf("%05d", batch_id), ".parquet"))
       arrow::write_parquet(batch_df, out_path)
+      
+      # Send progress update every batch
+      notify_me_done(
+        subject = sprintf("📊 Window Extraction Progress: %d/%d files", processed_count, total_files),
+        body = sprintf("Just wrote batch %d. Total files processed: %d of %d", batch_id, processed_count, total_files)
+      )
       
       batch_id <- batch_id + 1
       current_batch <- list()
@@ -93,3 +108,4 @@ process_windows <- function() {
 }
 
 process_windows()
+notify_me_done(subject = "✅ Window extraction finished")
