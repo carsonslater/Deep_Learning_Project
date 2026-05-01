@@ -1,8 +1,8 @@
-# Enriched Meter-Weather Dataset
+# AMI Water Usage Diffusion Model Architecture
 
 This repository contains the pipeline and analytical architecture for generating a high-resolution, enriched panel dataset of AMI water usage and local climate metrics. By the end of the pipeline, thousands of disparate meter records and API-sourced weather observations are synthesized into a unified, queryable structure.
 
-## 📊 The Enriched Data Structure
+## The Enriched Data Structure
 
 The primary output of this pipeline is a long-form panel dataset. Each row represents a 15-minute observation for a specific meter, enriched with the local climate conditions at that moment.
 
@@ -23,7 +23,7 @@ Because AMI data is recorded every 15 minutes while archival weather data is typ
 
 ---
 
-## 🗄️ Storage Architecture
+## Storage Architecture
 
 To maintain performance across millions of rows, the data is stored in a hybrid architecture:
 
@@ -44,7 +44,7 @@ A high-level health report is generated for the entire dataset, providing per-me
 
 ---
 
-## 🛠️ Data Access
+## Data Access
 
 The data is intended to be accessed lazily to preserve system memory:
 
@@ -67,7 +67,7 @@ high_usage_events <- panel %>%
 
 ---
 
-## 🧠 Model Architecture: 1D Conditional Diffusion
+## Model Architecture: 1D Conditional Diffusion
 
 Beyond the data pipeline, this repository implements a state-of-the-art **1D Conditional Diffusion Model** (based on DDPM) for generating synthetic residential water usage sequences. This model captures both routine human behavior and stochastic, climate-driven irrigation events.
 
