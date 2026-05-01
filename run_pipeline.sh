@@ -12,11 +12,12 @@ EPOCHS=2
 
 # Check for force flag (must come before stage checks)
 if [[ $* == *"--force"* ]]; then
-    echo "🗑️  FORCING RESTART: Clearing existing features, windows, and models..."
+    echo "🗑️  FORCING RESTART: Clearing existing features, windows, models, and virtual environment..."
     rm -f data/features/*.parquet
     rm -f data/windows/*.parquet
     rm -f .stage2_done .stage3_done
     rm -f final_water_diffusion_model.ckpt
+    rm -rf .venv
 fi
 
 # Check for production flag
