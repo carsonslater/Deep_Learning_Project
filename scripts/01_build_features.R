@@ -104,7 +104,9 @@ process_meter_file <- function(f) {
 }
 
 # 3. Set up parallel plan
-future::plan(multisession, workers = 10)
+n_workers <- parallelly::availableCores()
+cat("Utilizing", n_workers, "cores for feature generation.\n")
+future::plan(multisession, workers = n_workers)
 
 # 4. Run extraction with progress tracking
 cat("Starting feature generation for", length(meter_files), "files...\n")
