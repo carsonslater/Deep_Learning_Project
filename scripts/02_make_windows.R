@@ -1,4 +1,6 @@
 library(dplyr)
+library(future)
+library(future.apply)
 library(arrow)
 library(purrr)
 library(fs)
@@ -52,7 +54,6 @@ make_windows <- function(df, window_size = 96) {
 }
 
 process_windows <- function() {
-  # Handle command line arguments for sanity checks
   files <- fs::dir_ls(in_dir, glob = "*.parquet")
   
   args <- commandArgs(trailingOnly = TRUE)
@@ -63,57 +64,59 @@ process_windows <- function() {
     cat("Running in SANITY mode: limited to", n_limit, "meters.\n")
   }
   
-  cat("Processing", length(files), "files to generate windows (Disjoint Mode)...\n")
+  cat("Processing", length(files), "files to generate windows (Parallel Mode)...\n")
   
-  batch_count <- 0
-  current_batch <- list()
+  # Parallel Setup - use all available cores
+  n_workers <- parallelly::availableCores()
+  cat("Utilizing", n_workers, "cores.\n")
+  future::plan(multisession, workers = n_workers)
+  
+  total_files <- length(files)
+  chunk_size <- 100 # Process 100 homes at a time in parallel to manage memory
   batch_id <- 1
   
-  processed_count <- 0
-  total_files <- length(files)
-  
-  for (f in files) {
-    df <- arrow::read_parquet(f)
-    windows_df <- make_windows(df)
+  for (i in seq(1, total_files, by = chunk_size)) {
+    end_idx <- min(i + chunk_size - 1, total_files)
+    current_chunk <- files[i:end_idx]
     
-    if (!is.null(windows_df) && nrow(windows_df) > 0) {
-      current_batch[[length(current_batch) + 1]] <- windows_df
-    }
+    # Process chunk in parallel
+    chunk_results <- future.apply::future_lapply(current_chunk, function(f) {
+      df <- arrow::read_parquet(f)
+      res <- make_windows(df)
+      # Clean up worker memory after processing large window matrices
+      rm(df)
+      gc(full = TRUE) 
+      return(res)
+    })
     
-    processed_count <- processed_count + 1
+    # Filter out NULLs and bind
+    batch_df <- bind_rows(chunk_results)
     
-    # Notify every 200 homes
-    if (processed_count %% 200 == 0) {
-      notify_me_done(
-        subject = sprintf("🏠 Window Extraction: %d/%d Homes Complete", processed_count, total_files),
-        body = sprintf("Progress: %.1f%%", (processed_count / total_files) * 100)
-      )
-      # Trigger GC when notifying
-      gc()
-    }
-    
-    # Write batches every 100 homes (slightly larger batches for disjoint mode)
-    if (length(current_batch) >= 100) {
-      batch_df <- bind_rows(current_batch)
+    if (nrow(batch_df) > 0) {
       out_path <- file.path(out_dir, paste0("part_", sprintf("%05d", batch_id), ".parquet"))
       arrow::write_parquet(batch_df, out_path)
-      
       batch_id <- batch_id + 1
-      current_batch <- list()
-      # Periodic GC
-      gc()
     }
+    
+    cat(sprintf("Chunk %d complete (Homes %d-%d)\n", floor(i/chunk_size) + 1, i, end_idx))
+    
+    # Progress notification every 500 homes
+    if (i %% 500 == 1 && i > 1) {
+      notify_me_done(
+        subject = sprintf("🏠 Window Extraction Progress: %d%%", round(end_idx / total_files * 100)),
+        body = sprintf("Completed %d of %d files.", end_idx, total_files)
+      )
+    }
+    
+    # Explicit clean up in main process
+    rm(chunk_results, batch_df)
+    gc(full = TRUE)
   }
+
   
-  # Write any remaining windows
-  if (length(current_batch) > 0) {
-    batch_df <- bind_rows(current_batch)
-    out_path <- file.path(out_dir, paste0("part_", sprintf("%05d", batch_id), ".parquet"))
-    arrow::write_parquet(batch_df, out_path)
-  }
-  
-  cat("Window extraction complete. Wrote", batch_id, "parquet files.\n")
+  cat("Window extraction complete. Wrote", batch_id - 1, "parquet files.\n")
 }
 
 process_windows()
-notify_me_done(subject = "✅ Disjoint Window extraction finished")
+notify_me_done(subject = "✅ Window extraction finished (Parallel)")
+
