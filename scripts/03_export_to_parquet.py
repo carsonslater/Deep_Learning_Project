@@ -41,7 +41,7 @@ class WaterDataset(IterableDataset):
             # Optimized Arrow-to-NumPy conversion
             # Use to_numpy(zero_copy_only=False) to ensure we handle any internal Arrow structures safely
             raw_x = batch.column("x").flatten().to_numpy().astype(np.float32).reshape(-1, 96)
-            c_in_arr = batch.column("c_in").flatten().to_numpy().astype(np.float32).reshape(-1, 10, 96)
+            c_in_arr = batch.column("c_in").flatten().to_numpy().astype(np.float32).reshape(-1, 12, 96)
             c_out_arr = batch.column("c_out").flatten().to_numpy().astype(np.float32).reshape(-1, 10, 96)
             
             # Apply Normalization to target x
@@ -59,11 +59,11 @@ class WaterDataset(IterableDataset):
             
             x_arr = np.stack([occurrence_mask, log_normalised], axis=1)
             
-            # Apply Normalization to c_in (Lagged usage features: indices 6, 7, 8, 9)
+            # Apply Normalization to c_in (Lagged usage features: indices 6-11)
             # 🚨 FIX: Apply masking here too to prevent NaN/Inf from log1p(0) or corrupted data
-            lag_usage = c_in_arr[:, 6:10, :]
+            lag_usage = c_in_arr[:, 6:12, :]
             lag_mask = (lag_usage > 0.0).astype(np.float32)
-            c_in_arr[:, 6:10, :] = np.where(
+            c_in_arr[:, 6:12, :] = np.where(
                 lag_mask > 0,
                 (np.log1p(np.maximum(lag_usage, 0.0)) - log_mean) / (log_std + eps),
                 0.0

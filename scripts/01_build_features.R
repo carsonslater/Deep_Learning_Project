@@ -68,6 +68,8 @@ build_features <- function(df) {
   # Lagged usage statistics
   df <- df %>%
     dplyr::mutate(
+      usage_15m = dplyr::lag(usage, 1),
+      usage_30m = dplyr::lag(usage, 2),
       usage_1h = dplyr::lag(usage, 4),
       usage_6h = dplyr::lag(usage, 24),
       usage_24h = dplyr::lag(usage, 96),

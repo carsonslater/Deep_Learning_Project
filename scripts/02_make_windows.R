@@ -24,7 +24,7 @@ make_windows <- function(df, window_size = 96) {
   # c_in: month_sin/cos, dow_sin/cos, hour_sin/cos, usage_1h, usage_24h, usage_48h
   c_in_cols <- c(
     "month_sin", "month_cos", "dow_sin", "dow_cos", "hour_sin", "hour_cos",
-    "usage_1h", "usage_6h", "usage_24h", "usage_48h"
+    "usage_15m", "usage_30m", "usage_1h", "usage_6h", "usage_24h", "usage_48h"
   )
 
   # c_out: temp_c, precip_mm, snow_cm, temp_1h, temp_24h, temp_48h, snow_flag, precip_3d, snow_24h, gdd_7d

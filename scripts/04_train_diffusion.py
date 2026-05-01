@@ -190,8 +190,8 @@ if __name__ == "__main__":
         print("MPS not found, using CPU.")
     
     # Feature dimensions from script 02
-    d_in = 10  # indoor features
-    d_out = 10 # outdoor features
+    d_in = 12  # indoor features (6 calendar + 6 usage lags)
+    d_out = 10 # outdoor features (weather)
     
     # Instantiate model
     model = DiffusionModel(cond_in_dim=d_in, cond_out_dim=d_out)
