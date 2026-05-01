@@ -117,7 +117,11 @@ for (i in seq(1, total_files, by = chunk_size)) {
   end_idx <- min(i + chunk_size - 1, total_files)
   current_chunk <- meter_files[i:end_idx]
 
-  results <- future.apply::future_lapply(current_chunk, process_meter_file)
+  results <- future.apply::future_lapply(current_chunk, function(f) {
+    # ANTI-THRASHING: Force workers to be single-threaded
+    Sys.setenv(OMP_NUM_THREADS = "1")
+    process_meter_file(f)
+  })
 
   # Only send a notification around the 50% mark
   progress_pct <- round(end_idx / total_files * 100)

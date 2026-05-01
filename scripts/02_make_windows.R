@@ -91,6 +91,13 @@ process_windows <- function() {
 
     # Process chunk in parallel
     chunk_results <- future.apply::future_lapply(current_chunk, function(f) {
+      # ANTI-THRASHING: Force workers to be single-threaded
+      # This prevents "nested parallelism" where each worker tries to use all 14 cores.
+      Sys.setenv(OMP_NUM_THREADS = "1")
+      if (requireNamespace("data.table", quietly = TRUE)) {
+        data.table::setDTthreads(1)
+      }
+      
       df <- arrow::read_parquet(f)
       res <- make_windows(df)
       # Clean up worker memory after processing large window matrices
