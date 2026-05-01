@@ -71,9 +71,10 @@ build_features <- function(df) {
   # Lagged usage statistics
   df <- df %>%
     mutate(
-      usage_1h = dplyr::lag(usage, 4),
-      usage_24h = dplyr::lag(usage, 96),
-      usage_48h = dplyr::lag(usage, 192)
+      usage_1h = lag(usage, 4),
+      usage_6h = lag(usage, 24),
+      usage_24h = lag(usage, 96),
+      usage_48h = lag(usage, 192)
     )
   
   # Clean up temporary columns

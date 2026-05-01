@@ -1,0 +1,139 @@
+# AMI Water Usage Diffusion Model Architecture
+
+This document details the complete end-to-end architecture of the 1D Conditional Diffusion Model designed for synthetic residential water usage generation. It covers the data processing pipeline, the dual-track mathematical solutions for zero-inflated data, the dual-stream network architecture, and the fundamental diffusion equations.
+
+---
+
+## 1. Data Pipeline & Feature Engineering
+
+The model operates on high-resolution Advanced Metering Infrastructure (AMI) data, sampled at 15-minute intervals (96 intervals per 24-hour period).
+
+### 1.1 The Preprocessing Flow
+
+```{mermaid}
+graph TD
+    A["Raw DuckDB/Parquet Store"] --> B["Feature Engineering<br>01_build_features.R"]
+    B --> C["Rolling Window Extraction<br>02_make_windows.R"]
+    C --> D["Global Normalisation Stats<br>compute_norm_stats.py"]
+    D --> E["PyTorch Dataloader<br>03_export_to_parquet.py"]
+    E --> F["Dual-Track Transformation<br>Mask & Magnitude"]
+```
+
+### 1.2 Feature Dictionary
+The model is conditioned on two explicit streams of information to separate human diurnal behavior from stochastic climate-driven behavior (like irrigation).
+
+#### Indoor/Behavioral Stream (`c_in`, 10 features)
+*   **Temporal Cyclicals (`month_sin/cos`, `dow_sin/cos`, `hour_sin/cos`)**: Bounded `[-1, 1]` trigonometric encodings that allow the model to learn the cyclical nature of time seamlessly (e.g., December is physically close to January).
+*   **Lagged Usage (`usage_1h`, `usage_6h`, `usage_24h`, `usage_48h`)**: Log-normalized historical usage allowing the model to condition on recent and mid-range household activity states. 6-hour lags are particularly useful for capturing differences between morning and afternoon behavior states.
+
+#### Outdoor/Climate Stream (`c_out`, 10 features)
+*   **Current Climate**: `temp_c`, `precip_mm`, `snow_cm`, `snow_flag`.
+*   **Lagged Climate**: `temp_1h`, `temp_24h`, `temp_48h`.
+*   **Accumulated Climate Variables**:
+    *   `precip_3d`: 3-day rolling sum of precipitation. Models the "rain-off" effect where irrigation systems remain disabled after recent rain.
+    *   `gdd_7d`: 7-day rolling sum of Growing Degree Days (Base 10°C). A physiological plant metric that perfectly correlates with periods of high irrigation demand.
+
+### 1.3 Rolling Windows (Translation Invariance)
+Instead of disjoint daily windows, the pipeline extracts sequences using a **rolling stride of 1 interval**. This provides massive data augmentation (~35,000 sequences per home/year) and forces the model to learn *Translation Invariance*—understanding what the shape of a toilet flush or shower looks like structurally, regardless of what index it occupies in the 96-step sequence.
+
+---
+
+## 2. Zero-Inflated Dual-Track Representation
+
+Standard generative models fail on raw water usage because the data is *zero-inflated* and heavily right-skewed. A house uses exactly $0.0$ gallons for the vast majority of the day, but experiences sudden, massive bursts.
+
+To solve this mathematically, the Dataloader applies a **Hurdle Transformation**, splitting the single water usage track into a 2-channel tensor:
+
+1.  **Occurrence Mask ($m$)**: A binary mask `[0.0, 1.0]` indicating if *any* flow occurred.
+2.  **Log-Magnitude ($v$)**: A strictly continuous value representing the absolute volume.
+    *   $v_{raw} = \log(x + 1)$
+    *   $v_{norm} = \frac{v_{raw} - \mu}{\sigma}$
+
+By feeding the model `[B, 2, 96]` tensors, the network is tasked with predicting both the probability of flow and the volume of flow simultaneously.
+
+---
+
+## 3. Network Architecture
+
+The backbone is a **Dual-Stream 1D U-Net** utilizing FiLM (Feature-wise Linear Modulation) conditioning.
+
+```{mermaid}
+graph TD
+    X["Noisy Input x_t<br>(2 Channels: Mask, Mag)"] --> U1["UNet_In"]
+    X --> U2["UNet_Out"]
+
+    T["Time Embedding<br>t"] -.-> U1
+    T -.-> U2
+
+    C_IN["c_in<br>(Behavioral/Time)"] --> E_IN["Dense Encoder"]
+    C_OUT["c_out<br>(Climate/Weather)"] --> E_OUT["Dense Encoder"]
+
+    E_IN --> CAT["Concat Full Context"]
+    E_OUT --> CAT
+
+    CAT -.->|"FiLM Injection"| U1
+    CAT -.->|"FiLM Injection"| U2
+
+    U1 --> SUM((+))
+    U2 --> SUM
+
+    SUM --> OUT["Predicted Noise ε_θ<br>(2 Channels)"]
+```
+
+### 3.1 Dual-Stream Additive Synthesis (Full Context)
+The architecture isolates indoor routines from outdoor irrigation conceptually by using two parallel networks, but **crucially, both streams receive the full combined context** (Calendar + Weather).
+*   `UNet_in` focuses on baseline diurnal routines.
+*   `UNet_out` focuses on massive irrigation spikes, using both the weather severity (from `c_out`) AND the strict timing schedules like "4:00 AM on Tuesdays" (from `c_in`).
+The final noise prediction is simply $\epsilon_\theta = \epsilon_{in} + \epsilon_{out}$.
+
+### 3.2 FiLM Layers
+Instead of concatenating conditions to the input, the encoded vectors $c$ shift and scale the intermediate activations $h$ of the U-Net's Residual Blocks:
+$$ h' = h \odot \gamma(c) + \beta(c) $$
+This allows "Time of Day" or "High Temp" to globally scale up the probability of the Mask channel opening across the sequence.
+
+---
+
+## 4. Diffusion Mathematics
+
+The model operates under the framework of Denoising Diffusion Probabilistic Models (DDPM).
+
+### 4.1 Forward Process (Adding Noise)
+We define a fixed variance schedule $\beta_1, \dots, \beta_T$. Let $\alpha_t = 1 - \beta_t$ and $\bar{\alpha}_t = \prod_{s=1}^t \alpha_s$.
+The forward process corrupts the true 2-channel data $x_0$ with Gaussian noise $\epsilon \sim \mathcal{N}(0, I)$:
+
+$$ q(x_t \mid x_0) = \mathcal{N}(x_t ; \sqrt{\bar{\alpha}_t} x_0, (1 - \bar{\alpha}_t)I) $$
+
+Which yields the closed-form sampling step:
+$$ x_t = \sqrt{\bar{\alpha}_t}x_0 + \sqrt{1 - \bar{\alpha}_t}\epsilon $$
+
+*Because $x_0$ was transformed into the **standardized (Z-scored)** log-magnitude space and binary occurrence space, the additive Gaussian noise properly destroys the signal by $T=1000$. Without the dual-track standardization, the raw signals of ~900 gallons would dominate the $\mathcal{N}(0, 1)$ noise, causing model collapse.*
+
+### 4.2 Training Objective
+The network learns to reverse the process by predicting the injected noise $\epsilon$. Because the model outputs a 2-channel tensor matching the shape of $x_0$, a standard Mean Squared Error (MSE) loss simultaneously trains both the mask and the magnitude objectives:
+
+$$ \mathcal{L}_{MSE} = \mathbb{E}_{t, x_0, \epsilon} \left[ \left\| \epsilon - \epsilon_\theta(x_t, t, c_{in}, c_{out}) \right\|^2 \right] $$
+
+### 4.3 Reverse Process & Inference (Bernoulli Gating)
+During sampling, we start with pure Gaussian noise $x_T \sim \mathcal{N}(0, I)$ and iteratively denoise using the trained model:
+
+$$ x_{t-1} = \frac{1}{\sqrt{\alpha_t}} \left( x_t - \frac{1 - \alpha_t}{\sqrt{1 - \bar{\alpha}_t}} \epsilon_\theta(x_t, t, c) \right) + \sqrt{\beta_t} z $$
+
+Once we reach $x_0$, we possess a 2-channel array: $\hat{m}$ (Mask Logits) and $\hat{v}$ (Normalized Log-Magnitude).
+
+We pass this through a deterministic **Bernoulli Gate** to perfectly reconstruct the zero-inflated real-world usage:
+
+```{mermaid}
+graph LR
+    A["x_0_hat: 2-Channels"] --> B["Channel 0: Mask m"]
+    A --> C["Channel 1: Magnitude v"]
+    B --> D{"m > 0.5?"}
+    C --> E["gallons = exp(v*σ + μ) - 1"]
+    D -- Yes --> F["Output = gallons"]
+    D -- No --> G["Output = 0.000"]
+    E --> F
+```
+
+Mathematically, the final generated water usage $y$ is:
+$$ y = \mathbb{I}(\hat{m} > 0.5) \cdot \max\left( \exp(\hat{v} \cdot \sigma + \mu) - 1, \, 0 \right) $$
+
+This gating guarantees that physical valves are closed perfectly, removing the generative "fuzz" associated with standard Gaussian DDPMs.

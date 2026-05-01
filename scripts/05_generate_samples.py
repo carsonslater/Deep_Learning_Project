@@ -38,7 +38,7 @@ def generate_samples(checkpoint_path, num_samples=12):
     # 2. Create Dummy Conditions
     # Simulating a hot summer weekday: 
     # High temp, low humidity, weekday (dummy encoding)
-    c_in = torch.zeros(num_samples, 9, 96).to(device)
+    c_in = torch.zeros(num_samples, 10, 96).to(device)
     c_out = torch.zeros(num_samples, 10, 96).to(device)
     
     # Simulate some variation in conditions across samples
@@ -52,8 +52,8 @@ def generate_samples(checkpoint_path, num_samples=12):
     
     # 3. Reverse Diffusion Loop (DDPM Sampling)
     with torch.no_grad():
-        # Start with pure Gaussian noise
-        x = torch.randn(num_samples, 1, 96).to(device)
+        # Start with pure Gaussian noise (2 channels now: mask and magnitude)
+        x = torch.randn(num_samples, 2, 96).to(device)
         
         T = lit_model.T
         alphas = lit_model.alphas.to(device)
@@ -78,11 +78,24 @@ def generate_samples(checkpoint_path, num_samples=12):
             ) + torch.sqrt(beta) * z
             
     # 4. Post-process and Plot
-    samples = x.cpu().numpy().squeeze()
+    x_np = x.cpu().numpy() # Shape: (B, 2, 96)
     
-    # Normalize or clip for visualization if needed
-    # (Assuming the model was trained on log-transformed or normalized data)
-    samples = np.maximum(samples, 0) # Water usage can't be negative
+    occurrence_mask = x_np[:, 0, :]
+    log_magnitude = x_np[:, 1, :]
+    
+    # Load stats dynamically for unscaling
+    import json
+    with open("norm_stats.json", "r") as f:
+        stats = json.load(f)
+        log_mean = stats["log_mean"]
+        log_std = stats["log_std"]
+    
+    # Inverse Transform
+    gate = (occurrence_mask > 0.5).astype(float)
+    unscaled_log = (log_magnitude * log_std) + log_mean
+    gallons = np.expm1(unscaled_log)
+    
+    samples = gate * np.maximum(gallons, 0.0)
     
     # Plotting with Premium Aesthetics
     plt.style.use('dark_background')

@@ -10,6 +10,13 @@ class WaterDataset(IterableDataset):
         self.data_dir = data_dir
         self.dataset = ds.dataset(data_dir, format="parquet")
         self.batch_size = batch_size
+        
+        # Load normalization stats dynamically
+        import json
+        with open("norm_stats.json", "r") as f:
+            stats = json.load(f)
+            for key, val in stats.items():
+                setattr(self, key, val)
 
     def __iter__(self):
         worker_info = torch.utils.data.get_worker_info()
@@ -31,23 +38,51 @@ class WaterDataset(IterableDataset):
         worker_ds = ds.dataset(files, format="parquet")
         
         for batch in worker_ds.to_batches(batch_size=self.batch_size):
-            # Use to_pylist() for list columns to avoid ArrowInvalid zero-copy errors
-            x_arr = np.array(batch.column("x").to_pylist(), dtype=np.float32)
-            c_in_arr = np.array(batch.column("c_in").to_pylist(), dtype=np.float32)
-            c_out_arr = np.array(batch.column("c_out").to_pylist(), dtype=np.float32)
+            # Optimized Arrow-to-NumPy conversion
+            raw_x = batch.column("x").flatten().to_numpy().astype(np.float32).reshape(-1, 96)
+            c_in_arr = batch.column("c_in").flatten().to_numpy().astype(np.float32).reshape(-1, 10, 96)
+            c_out_arr = batch.column("c_out").flatten().to_numpy().astype(np.float32).reshape(-1, 10, 96)
             
+            # Apply Normalization to target x
+            log_mean = self.log_mean
+            log_std = self.log_std
+            eps = 1e-6
+            
+            occurrence_mask = (raw_x > 0.0).astype(np.float32)
+            log_vals = np.log1p(raw_x)
+            log_normalised = np.where(
+                occurrence_mask > 0,
+                (log_vals - log_mean) / (log_std + eps),
+                0.0
+            ).astype(np.float32)
+            
+            x_arr = np.stack([occurrence_mask, log_normalised], axis=1)
+            
+            # Apply Normalization to c_in (Lagged usage features: indices 6, 7, 8, 9)
+            # Use same log scaling as target x for consistency
+            c_in_arr[:, 6:10, :] = (np.log1p(c_in_arr[:, 6:10, :]) - log_mean) / (log_std + eps)
+            
+            # Apply Normalization to c_out (Weather features)
+            weather_cols = ["temp_c", "precip_mm", "snow_cm", "temp_1h", "temp_24h", "temp_48h", "precip_3d", "snow_24h", "gdd_7d"]
+            # Indices for these in c_out: 0, 1, 2, 3, 4, 5, 7, 8, 9 (Index 6 is snow_flag)
+            weather_indices = [0, 1, 2, 3, 4, 5, 7, 8, 9]
+            
+            for i, col in enumerate(weather_cols):
+                mean = getattr(self, f"{col}_mean")
+                std = getattr(self, f"{col}_std")
+                idx = weather_indices[i]
+                c_out_arr[:, idx, :] = (c_out_arr[:, idx, :] - mean) / (std + eps)
+
             # Convert to torch
             x = torch.from_numpy(x_arr)
-            if x.ndim == 2: x = x.unsqueeze(1) # Ensure [B, 1, 96]
+            c_in = torch.from_numpy(c_in_arr)
+            c_out = torch.from_numpy(c_out_arr)
             
-            c_in = torch.from_numpy(c_in_arr).view(-1, 9, 96)
-            c_out = torch.from_numpy(c_out_arr).view(-1, 10, 96)
-            
-            # Yield individual samples (Dataloader will re-batch them)
+            # Yield individual samples
             for i in range(x.shape[0]):
                 yield x[i], c_in[i], c_out[i]
 
-def get_dataloader(data_dir="data/windows/", batch_size=64, num_workers=4):
+def get_dataloader(data_dir="data/windows/", batch_size=64, num_workers=0):
     dataset = WaterDataset(data_dir=data_dir)
     loader = DataLoader(
         dataset,

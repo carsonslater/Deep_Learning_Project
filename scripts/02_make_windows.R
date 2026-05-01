@@ -20,7 +20,7 @@ make_windows <- function(df, window_size = 96) {
   
   # c_in: month_sin/cos, dow_sin/cos, hour_sin/cos, usage_1h, usage_24h, usage_48h
   c_in_cols <- c("month_sin", "month_cos", "dow_sin", "dow_cos", "hour_sin", "hour_cos", 
-                 "usage_1h", "usage_24h", "usage_48h")
+                 "usage_1h", "usage_6h", "usage_24h", "usage_48h")
                  
   # c_out: temp_c, precip_mm, snow_cm, temp_1h, temp_24h, temp_48h, snow_flag, precip_3d, snow_24h, gdd_7d
   c_out_cols <- c("temp_c", "precip_mm", "snow_cm", "temp_1h", "temp_24h", "temp_48h", 
@@ -29,9 +29,9 @@ make_windows <- function(df, window_size = 96) {
   c_in_mat <- as.matrix(df[, c_in_cols])
   c_out_mat <- as.matrix(df[, c_out_cols])
   
-  # Use disjoint windows (stride = window_size) for efficiency and less redundancy
-  # Each day is its own unique sample.
-  stride <- window_size 
+  # Use rolling windows (stride = 1) for data augmentation and translation invariance
+  # This provides ~96x more training data.
+  stride <- 1 
   idx <- seq(1, n - window_size + 1, by = stride)
   
   # Optimized extraction: Pre-slice matrices
@@ -86,9 +86,7 @@ process_windows <- function() {
     if (processed_count %% 200 == 0) {
       notify_me_done(
         subject = sprintf("🏠 Window Extraction: %d/%d Homes Complete", processed_count, total_files),
-        body = sprintf("Progress: %.1f%%. Memory usage: %s", 
-                       (processed_count / total_files) * 100,
-                       pryr::mem_used())
+        body = sprintf("Progress: %.1f%%", (processed_count / total_files) * 100)
       )
       # Trigger GC when notifying
       gc()

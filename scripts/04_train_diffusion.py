@@ -57,12 +57,12 @@ class ResBlock(nn.Module):
 class UNet1D(nn.Module):
     def __init__(self, cond_dim):
         super().__init__()
-        self.down1 = ResBlock(1, 64, cond_dim)
+        self.down1 = ResBlock(2, 64, cond_dim)
         self.down2 = ResBlock(64, 128, cond_dim)
         self.mid   = ResBlock(128, 128, cond_dim)
         self.up2   = ResBlock(256, 64, cond_dim) # Concat from down2
         self.up1   = ResBlock(128, 64, cond_dim) # Concat from down1
-        self.final = nn.Conv1d(64, 1, 1)
+        self.final = nn.Conv1d(64, 2, 1)
         self.pool  = nn.AvgPool1d(2)
         self.upsample = nn.Upsample(scale_factor=2, mode='linear', align_corners=False)
 
@@ -88,9 +88,9 @@ class DiffusionModel(nn.Module):
             nn.SiLU(),
             nn.Linear(64, 64)
         )
-        # Dual-stream: indoor behavior and outdoor weather
-        self.unet_in = UNet1D(cond_dim=64+64) # time + c_in_emb
-        self.unet_out = UNet1D(cond_dim=64+64) # time + c_out_emb
+        # Dual-stream: specialized branches that both see the full context
+        self.unet_in = UNet1D(cond_dim=64+128) # time + full_cond
+        self.unet_out = UNet1D(cond_dim=64+128) 
         
         self.c_in_enc = nn.Linear(cond_in_dim, 64)
         self.c_out_enc = nn.Linear(cond_out_dim, 64)
@@ -114,8 +114,11 @@ class DiffusionModel(nn.Module):
         c_in_emb = self.c_in_enc(c_in.mean(dim=-1))
         c_out_emb = self.c_out_enc(c_out.mean(dim=-1))
         
-        eps_in = self.unet_in(x, t_emb, c_in_emb)
-        eps_out = self.unet_out(x, t_emb, c_out_emb)
+        # Concatenate so BOTH streams know the calendar/time AND the weather
+        full_cond = torch.cat([c_in_emb, c_out_emb], dim=1) # [B, 128]
+        
+        eps_in = self.unet_in(x, t_emb, full_cond)
+        eps_out = self.unet_out(x, t_emb, full_cond)
         
         return eps_in + eps_out
 
@@ -178,7 +181,7 @@ if __name__ == "__main__":
         print("MPS not found, using CPU.")
     
     # Feature dimensions from script 02
-    d_in = 9  # indoor features
+    d_in = 10  # indoor features
     d_out = 10 # outdoor features
     
     # Instantiate model
@@ -187,7 +190,7 @@ if __name__ == "__main__":
     
     # Dataloader
     try:
-        train_dataloader = get_dataloader(batch_size=128, num_workers=4)
+        train_dataloader = get_dataloader(batch_size=128, num_workers=0)
         
         # Setup PyTorch Lightning Trainer
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
