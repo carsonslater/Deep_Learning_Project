@@ -15,6 +15,7 @@ if [[ $* == *"--force"* ]]; then
     echo "🗑️  FORCING RESTART: Clearing existing features, windows, and models..."
     rm -f data/features/*.parquet
     rm -f data/windows/*.parquet
+    rm -f .stage2_done .stage3_done
     rm -f final_water_diffusion_model.ckpt
 fi
 
@@ -39,26 +40,34 @@ fi
 
 # 2. Data Processing (R - Features)
 echo "--- Stage 2: Feature Engineering ---"
-if [ "$(ls -A data/features/*.parquet 2>/dev/null)" ]; then
-    echo "✅ Stage 2 skipped: data/features/ already contains computed files."
+if [ -f ".stage2_done" ]; then
+    echo "✅ Stage 2 skipped: .stage2_done marker found (stage completed successfully previously)."
 else
+    echo "🧹 Cleaning up any partial files from Stage 2..."
+    rm -f data/features/*.parquet
+    
     if [[ $MODE == "full" ]]; then
         Rscript scripts/01_build_features.R
     else
         Rscript scripts/01_build_features.R --limit $LIMIT
     fi
+    touch .stage2_done
 fi
 
 # 3. Data Processing (R - Windows)
 echo "--- Stage 3: Window Extraction ---"
-if [ "$(ls -A data/windows/*.parquet 2>/dev/null)" ]; then
-    echo "✅ Stage 3 skipped: data/windows/ already contains computed files."
+if [ -f ".stage3_done" ]; then
+    echo "✅ Stage 3 skipped: .stage3_done marker found (stage completed successfully previously)."
 else
+    echo "🧹 Cleaning up any partial files from Stage 3..."
+    rm -f data/windows/*.parquet
+    
     if [[ $MODE == "full" ]]; then
         Rscript scripts/02_make_windows.R
     else
         Rscript scripts/02_make_windows.R --limit $LIMIT
     fi
+    touch .stage3_done
 fi
 
 # 4. Training (Python)
