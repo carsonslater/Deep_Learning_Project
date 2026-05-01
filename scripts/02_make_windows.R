@@ -82,7 +82,7 @@ process_windows <- function() {
   future::plan(multisession, workers = n_workers)
 
   total_files <- length(files)
-  chunk_size <- 50 # Reduced from 100 to account for stride=1 memory load
+  chunk_size <- 10 # Drastically reduced to prevent 30GB memory spikes with stride=1
   batch_id <- 1
 
   for (i in seq(1, total_files, by = chunk_size)) {
