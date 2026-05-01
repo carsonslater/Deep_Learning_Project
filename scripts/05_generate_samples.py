@@ -20,8 +20,8 @@ def generate_samples(checkpoint_path, num_samples=12):
     Loads the diffusion model and generates synthetic water usage samples.
     """
     # 1. Load Model
-    # Dimensions match the training script (9 indoor, 10 outdoor features)
-    model_backbone = DiffusionModel(cond_in_dim=9, cond_out_dim=10)
+    # Dimensions match the training script (10 indoor, 10 outdoor features)
+    model_backbone = DiffusionModel(cond_in_dim=10, cond_out_dim=10)
     
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found at {checkpoint_path}")
@@ -36,20 +36,40 @@ def generate_samples(checkpoint_path, num_samples=12):
     print(f"✨ Generating {num_samples} samples on {device}...")
     
     # 2. Create Dummy Conditions
-    # Simulating a hot summer weekday: 
-    # High temp, low humidity, weekday (dummy encoding)
+    # Simulating a hot summer weekday: High temp, low humidity
     c_in = torch.zeros(num_samples, 10, 96).to(device)
     c_out = torch.zeros(num_samples, 10, 96).to(device)
     
-    # Simulate some variation in conditions across samples
-    for i in range(num_samples):
-        # Indoor conditions (e.g., house size, family size - static for the day)
-        c_in[i, 0, :] = 0.8  # Normalized scale factor
-        c_in[i, 1, :] = np.sin(np.pi * (i / num_samples)) # Seasonal variation
-        
-        # Outdoor conditions (e.g., Temp = 35C + noise)
-        c_out[i, 0, :] = 35.0 + np.random.normal(0, 2)
+    # Load stats for normalization
+    import json
+    with open("norm_stats.json", "r") as f:
+        stats = json.load(f)
     
+    # Simulate variation and NORMALIZE
+    for i in range(num_samples):
+        # Indoor conditions indices 0-5 are calendar (sin/cos already normalized)
+        c_in[i, 0, :] = 0.8  # Dummy normalized seasonal factor
+        
+        # Indoor usage lags (Indices 6-9)
+        # Simulate some baseline activity (e.g., 0.1 gallons) and normalize it
+        base_lag_usage = 0.1 
+        norm_lag = (np.log1p(base_lag_usage) - stats["log_mean"]) / (stats["log_std"] + 1e-6)
+        c_in[i, 6:10, :] = torch.tensor(norm_lag)
+        
+        # Outdoor conditions (e.g., Temp = 35C)
+        temp_raw = 35.0 + np.random.normal(0, 2)
+        temp_norm = (temp_raw - stats["temp_c_mean"]) / (stats["temp_c_std"] + 1e-6)
+        c_out[i, 0, :] = torch.tensor(temp_norm)
+        
+        # Precipitation (0.0 mm)
+        precip_norm = (0.0 - stats["precip_mm_mean"]) / (stats["precip_mm_std"] + 1e-6)
+        c_out[i, 1, :] = torch.tensor(precip_norm)
+        
+        # GDD (High GDD for summer)
+        gdd_raw = 150.0 
+        gdd_norm = (gdd_raw - stats["gdd_7d_mean"]) / (stats["gdd_7d_std"] + 1e-6)
+        c_out[i, 9, :] = torch.tensor(gdd_norm)
+        
     # 3. Reverse Diffusion Loop (DDPM Sampling)
     with torch.no_grad():
         # Start with pure Gaussian noise (2 channels now: mask and magnitude)

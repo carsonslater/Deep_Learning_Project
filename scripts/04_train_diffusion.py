@@ -192,10 +192,15 @@ if __name__ == "__main__":
     try:
         train_dataloader = get_dataloader(batch_size=128, num_workers=0)
         
+        # Versioned Filename
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        model_name = f"water_diffusion_{timestamp}"
+        
         # Setup PyTorch Lightning Trainer
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
             dirpath=os.getcwd(),
-            filename="final_water_diffusion_model",
+            filename=model_name,
             save_top_k=1,
             monitor="train_loss",
             mode="min"
@@ -223,12 +228,18 @@ if __name__ == "__main__":
             callbacks=[checkpoint_callback, early_stop_callback]
         )
         
-        print("Starting training...")
+        print(f"Starting training (Checkpoint: {model_name}.ckpt)...")
         trainer.fit(lit_model, train_dataloader)
         
-        # Save explicit final copy
-        trainer.save_checkpoint("final_water_diffusion_model.ckpt")
-        print("Training finished. Model saved.")
+        # Save explicit final copy with timestamp
+        final_path = f"{model_name}_final.ckpt"
+        trainer.save_checkpoint(final_path)
+        
+        # Create a copy as 'final_water_diffusion_model.ckpt' for the pipeline scripts
+        import shutil
+        shutil.copyfile(final_path, "final_water_diffusion_model.ckpt")
+        
+        print(f"Training finished. Model saved as {final_path} and synced to final_water_diffusion_model.ckpt")
         
     except Exception as e:
         print(f"Failed to start training. Error: {e}")
