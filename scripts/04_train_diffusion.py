@@ -201,6 +201,14 @@ if __name__ == "__main__":
             mode="min"
         )
         
+        early_stop_callback = pl.callbacks.EarlyStopping(
+            monitor="train_loss",
+            patience=10,
+            min_delta=1e-4, # Low tolerance for convergence
+            verbose=True,
+            mode="min"
+        )
+        
         # Handle command line arguments
         parser = argparse.ArgumentParser()
         parser.add_argument("--epochs", type=int, default=2, help="Number of training epochs")
@@ -212,7 +220,7 @@ if __name__ == "__main__":
             max_epochs=args.epochs,
             precision=32,
             gradient_clip_val=1.0,
-            callbacks=[checkpoint_callback]
+            callbacks=[checkpoint_callback, early_stop_callback]
         )
         
         print("Starting training...")
