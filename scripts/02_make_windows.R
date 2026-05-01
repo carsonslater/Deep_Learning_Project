@@ -18,8 +18,6 @@ make_windows <- function(df, window_size = 96) {
   # Target sequence: usage (x)
   x_mat <- as.matrix(df$usage)
   
-  # Conditioning: Indoor (c_in) and Outdoor (c_out)
-  # Based on build_features script:
   # c_in: month_sin/cos, dow_sin/cos, hour_sin/cos, usage_1h, usage_24h, usage_48h
   c_in_cols <- c("month_sin", "month_cos", "dow_sin", "dow_cos", "hour_sin", "hour_cos", 
                  "usage_1h", "usage_24h", "usage_48h")
@@ -31,28 +29,32 @@ make_windows <- function(df, window_size = 96) {
   c_in_mat <- as.matrix(df[, c_in_cols])
   c_out_mat <- as.matrix(df[, c_out_cols])
   
-  # Generate indices for rolling windows
-  idx <- 1:(n - window_size + 1)
+  # Use disjoint windows (stride = window_size) for efficiency and less redundancy
+  # Each day is its own unique sample.
+  stride <- window_size 
+  idx <- seq(1, n - window_size + 1, by = stride)
   
-  # Map to list of windows
-  res <- map(idx, function(i) {
+  # Optimized extraction: Pre-slice matrices
+  res <- lapply(idx, function(i) {
     list(
       x = x_mat[i:(i + window_size - 1), 1],
-      c_in = t(c_in_mat[i:(i + window_size - 1), ]), # Transpose to [Channels, Seq]
+      c_in = t(c_in_mat[i:(i + window_size - 1), ]),
       c_out = t(c_out_mat[i:(i + window_size - 1), ])
     )
   })
   
-  # Flatten and return as a tibble with list-columns
+  # Return as a tibble
   tibble(
-    x = map(res, "x"),
-    c_in = map(res, "c_in"),
-    c_out = map(res, "c_out")
+    x = lapply(res, `[[`, "x"),
+    c_in = lapply(res, `[[`, "c_in"),
+    c_out = lapply(res, `[[`, "c_out")
   )
 }
 
 process_windows <- function() {
   # Handle command line arguments for sanity checks
+  files <- fs::dir_ls(in_dir, glob = "*.parquet")
+  
   args <- commandArgs(trailingOnly = TRUE)
   limit_idx <- which(args == "--limit")
   if (length(limit_idx) > 0) {
@@ -61,7 +63,7 @@ process_windows <- function() {
     cat("Running in SANITY mode: limited to", n_limit, "meters.\n")
   }
   
-  cat("Processing", length(files), "files to generate windows...\n")
+  cat("Processing", length(files), "files to generate windows (Disjoint Mode)...\n")
   
   batch_count <- 0
   current_batch <- list()
@@ -80,20 +82,28 @@ process_windows <- function() {
     
     processed_count <- processed_count + 1
     
-    # Check if we should write a batch
-    if (length(current_batch) >= 50) { # Batched every 50 meters
+    # Notify every 200 homes
+    if (processed_count %% 200 == 0) {
+      notify_me_done(
+        subject = sprintf("🏠 Window Extraction: %d/%d Homes Complete", processed_count, total_files),
+        body = sprintf("Progress: %.1f%%. Memory usage: %s", 
+                       (processed_count / total_files) * 100,
+                       pryr::mem_used())
+      )
+      # Trigger GC when notifying
+      gc()
+    }
+    
+    # Write batches every 100 homes (slightly larger batches for disjoint mode)
+    if (length(current_batch) >= 100) {
       batch_df <- bind_rows(current_batch)
       out_path <- file.path(out_dir, paste0("part_", sprintf("%05d", batch_id), ".parquet"))
       arrow::write_parquet(batch_df, out_path)
       
-      # Send progress update every batch
-      notify_me_done(
-        subject = sprintf("📊 Window Extraction Progress: %d/%d files", processed_count, total_files),
-        body = sprintf("Just wrote batch %d. Total files processed: %d of %d", batch_id, processed_count, total_files)
-      )
-      
       batch_id <- batch_id + 1
       current_batch <- list()
+      # Periodic GC
+      gc()
     }
   }
   
@@ -108,4 +118,4 @@ process_windows <- function() {
 }
 
 process_windows()
-notify_me_done(subject = "✅ Window extraction finished")
+notify_me_done(subject = "✅ Disjoint Window extraction finished")
