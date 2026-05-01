@@ -10,6 +10,14 @@ MODE="sanity"
 LIMIT=10
 EPOCHS=2
 
+# Check for force flag (must come before stage checks)
+if [[ $* == *"--force"* ]]; then
+    echo "🗑️  FORCING RESTART: Clearing existing features, windows, and models..."
+    rm -f data/features/*.parquet
+    rm -f data/windows/*.parquet
+    rm -f final_water_diffusion_model.ckpt
+fi
+
 # Check for production flag
 if [[ $* == *"--full"* ]]; then
     MODE="full"
