@@ -5,14 +5,14 @@
 
 set -e # Exit on error
 
-echo "🚀 Starting environment setup..."
+echo "Starting environment setup..."
 
 # 1. Directory Setup
-echo "📁 Creating data directories..."
+echo "Creating data directories..."
 mkdir -p data/features data/windows data/parquet
 
 # 2. Python Setup (using uv)
-echo "🐍 Setting up Python virtual environment..."
+echo "Setting up Python virtual environment..."
 if ! command -v uv &> /dev/null; then
     echo "uv not found. Installing uv..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -24,7 +24,7 @@ fi
 uv venv --python 3.10
 source .venv/bin/activate
 
-echo "📦 Installing Python packages..."
+echo "Installing Python packages..."
 uv pip install \
     torch \
     pytorch-lightning \
@@ -36,7 +36,7 @@ uv pip install \
     "fsspec>=2023.6.0"
 
 # 3. R Setup
-echo "📊 Checking R dependencies..."
+echo "Checking R dependencies..."
 Rscript -e '
 required_packages <- c("data.table", "dplyr", "future", "future.apply", "arrow", "lubridate", "tidyr", "purrr", "zoo", "fs", "blastula", "stringr", "DBI", "duckdb")
 missing_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
@@ -49,7 +49,8 @@ if(length(missing_packages) > 0) {
 }
 '
 
-echo "✅ Setup Complete!"
+echo "Setup Complete!"
+
 echo ""
 echo "To start the pipeline, run:"
 echo "source .venv/bin/activate"

@@ -12,7 +12,7 @@ EPOCHS=2
 
 # Check for force flag (must come before stage checks)
 if [[ $* == *"--force"* ]]; then
-    echo "🗑️  FORCING RESTART: Clearing existing features, windows, models, and virtual environment..."
+    echo "[RESTART] FORCING RESTART: Clearing existing features, windows, models, and virtual environment..."
     rm -f data/features/*.parquet
     rm -f data/windows/*.parquet
     rm -f .stage2_done .stage3_done
@@ -24,9 +24,9 @@ fi
 if [[ $* == *"--full"* ]]; then
     MODE="full"
     EPOCHS=1000
-    echo "🌕 MODE: FULL PRODUCTION RUN (All meters, $EPOCHS epochs)"
+    echo "[MODE] FULL PRODUCTION RUN (All meters, $EPOCHS epochs)"
 else
-    echo "🕒 MODE: SANITY CHECK ($LIMIT meters, $EPOCHS epochs)"
+    echo "[MODE] SANITY CHECK ($LIMIT meters, $EPOCHS epochs)"
 fi
 
 # 1. Environment Setup
@@ -36,15 +36,15 @@ if [ ! -d ".venv" ]; then
     chmod +x setup_env.sh
     source ./setup_env.sh
 else
-    echo "✅ Environment already exists."
+    echo "[DONE] Environment already exists."
 fi
 
 # 2. Data Processing (R - Features)
 echo "--- Stage 2: Feature Engineering ---"
 if [ -f ".stage2_done" ]; then
-    echo "✅ Stage 2 skipped: .stage2_done marker found (stage completed successfully previously)."
+    echo "[DONE] Stage 2 skipped: .stage2_done marker found (stage completed successfully previously)."
 else
-    echo "🧹 Cleaning up any partial files from Stage 2..."
+    echo "[CLEAN] Cleaning up any partial files from Stage 2..."
     rm -f data/features/*.parquet
     
     if [[ $MODE == "full" ]]; then
@@ -58,9 +58,9 @@ fi
 # 3. Data Processing (R - Windows)
 echo "--- Stage 3: Window Extraction ---"
 if [ -f ".stage3_done" ]; then
-    echo "✅ Stage 3 skipped: .stage3_done marker found (stage completed successfully previously)."
+    echo "[DONE] Stage 3 skipped: .stage3_done marker found (stage completed successfully previously)."
 else
-    echo "🧹 Cleaning up any partial files from Stage 3..."
+    echo "[CLEAN] Cleaning up any partial files from Stage 3..."
     rm -f data/windows/*.parquet
     
     if [[ $MODE == "full" ]]; then
@@ -74,7 +74,7 @@ fi
 # 4. Training (Python)
 echo "--- Stage 4: Training Diffusion Model ---"
 if [ -f "final_water_diffusion_model.ckpt" ]; then
-    echo "✅ Stage 4 skipped: Model checkpoint 'final_water_diffusion_model.ckpt' already exists."
+    echo "[DONE] Stage 4 skipped: Model checkpoint 'final_water_diffusion_model.ckpt' already exists."
 else
     source .venv/bin/activate
     python3 scripts/04_train_diffusion.py --epochs $EPOCHS
@@ -85,4 +85,4 @@ echo "--- Stage 5: Generating Synthetic Samples ---"
 source .venv/bin/activate
 python3 scripts/05_generate_samples.py
 
-echo "✅ Pipeline Complete! Check 'synthetic_samples_poc.png' for the latest results."
+echo "[DONE] Pipeline Complete! Check 'synthetic_samples_poc.png' for the latest results."

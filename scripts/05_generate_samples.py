@@ -33,7 +33,7 @@ def generate_samples(checkpoint_path, num_samples=12):
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     lit_model.to(device)
     
-    print(f"✨ Generating {num_samples} samples on {device}...")
+    print(f"Generating {num_samples} samples on {device}...")
     
     # 2. Create Dummy Conditions
     # Simulating a hot summer weekday: High temp, low humidity
@@ -113,6 +113,10 @@ def generate_samples(checkpoint_path, num_samples=12):
     # Inverse Transform
     gate = (occurrence_mask > 0.5).astype(float)
     unscaled_log = (log_magnitude * log_std) + log_mean
+    
+    # Cap unscaled_log to prevent np.expm1 overflow (inf) from an untrained model's noise
+    unscaled_log = np.clip(unscaled_log, a_min=-10.0, a_max=10.0)
+    
     gallons = np.expm1(unscaled_log)
     
     samples = gate * np.maximum(gallons, 0.0)
@@ -148,7 +152,7 @@ def generate_samples(checkpoint_path, num_samples=12):
     
     plt.tight_layout()
     plt.savefig("synthetic_samples_poc.png", facecolor='#0a0a0a')
-    print("✅ Successfully generated samples and saved to synthetic_samples_poc.png")
+    print("Successfully generated samples and saved to synthetic_samples_poc.png")
     
     return samples
 
@@ -159,6 +163,6 @@ if __name__ == "__main__":
     try:
         generate_samples(ckpt_path)
     except Exception as e:
-        print(f"❌ Error during generation: {e}")
+        print(f"Error during generation: {e}")
         import traceback
         traceback.print_exc()

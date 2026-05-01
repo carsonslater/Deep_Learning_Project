@@ -39,6 +39,7 @@ class WaterDataset(IterableDataset):
         
         for batch in worker_ds.to_batches(batch_size=self.batch_size):
             # Optimized Arrow-to-NumPy conversion
+            # Use to_numpy(zero_copy_only=False) to ensure we handle any internal Arrow structures safely
             raw_x = batch.column("x").flatten().to_numpy().astype(np.float32).reshape(-1, 96)
             c_in_arr = batch.column("c_in").flatten().to_numpy().astype(np.float32).reshape(-1, 10, 96)
             c_out_arr = batch.column("c_out").flatten().to_numpy().astype(np.float32).reshape(-1, 10, 96)
@@ -49,7 +50,7 @@ class WaterDataset(IterableDataset):
             eps = 1e-6
             
             occurrence_mask = (raw_x > 0.0).astype(np.float32)
-            log_vals = np.log1p(raw_x)
+            log_vals = np.log1p(np.maximum(raw_x, 0.0)) # Ensure non-negative for log
             log_normalised = np.where(
                 occurrence_mask > 0,
                 (log_vals - log_mean) / (log_std + eps),
@@ -59,12 +60,17 @@ class WaterDataset(IterableDataset):
             x_arr = np.stack([occurrence_mask, log_normalised], axis=1)
             
             # Apply Normalization to c_in (Lagged usage features: indices 6, 7, 8, 9)
-            # Use same log scaling as target x for consistency
-            c_in_arr[:, 6:10, :] = (np.log1p(c_in_arr[:, 6:10, :]) - log_mean) / (log_std + eps)
+            # 🚨 FIX: Apply masking here too to prevent NaN/Inf from log1p(0) or corrupted data
+            lag_usage = c_in_arr[:, 6:10, :]
+            lag_mask = (lag_usage > 0.0).astype(np.float32)
+            c_in_arr[:, 6:10, :] = np.where(
+                lag_mask > 0,
+                (np.log1p(np.maximum(lag_usage, 0.0)) - log_mean) / (log_std + eps),
+                0.0
+            )
             
             # Apply Normalization to c_out (Weather features)
             weather_cols = ["temp_c", "precip_mm", "snow_cm", "temp_1h", "temp_24h", "temp_48h", "precip_3d", "snow_24h", "gdd_7d"]
-            # Indices for these in c_out: 0, 1, 2, 3, 4, 5, 7, 8, 9 (Index 6 is snow_flag)
             weather_indices = [0, 1, 2, 3, 4, 5, 7, 8, 9]
             
             for i, col in enumerate(weather_cols):
@@ -78,8 +84,12 @@ class WaterDataset(IterableDataset):
             c_in = torch.from_numpy(c_in_arr)
             c_out = torch.from_numpy(c_out_arr)
             
-            # Yield individual samples
+            # Final Integrity Check: Drop any sample with NaNs or Infs
             for i in range(x.shape[0]):
+                if torch.isnan(x[i]).any() or torch.isinf(x[i]).any(): continue
+                if torch.isnan(c_in[i]).any() or torch.isinf(c_in[i]).any(): continue
+                if torch.isnan(c_out[i]).any() or torch.isinf(c_out[i]).any(): continue
+                
                 yield x[i], c_in[i], c_out[i]
 
 def get_dataloader(data_dir="data/windows/", batch_size=64, num_workers=0):

@@ -1,4 +1,4 @@
-notify_me_done <- function(subject = "✅ R script finished", to = "carsonslater7@gmail.com",
+notify_me_done <- function(subject = "[DONE] R script finished", to = "carsonslater7@gmail.com",
                            from = "carsonslater7@gmail.com", body = NULL, include_session_info = TRUE) {
   stopifnot(nzchar(Sys.getenv("SMTP_PASSWORD")))
   if (is.null(body)) {

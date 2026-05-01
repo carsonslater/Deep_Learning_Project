@@ -38,7 +38,9 @@ class ResBlock(nn.Module):
     def __init__(self, in_ch, out_ch, cond_dim):
         super().__init__()
         self.conv1 = nn.Conv1d(in_ch, out_ch, 3, padding=1)
+        self.gn1   = nn.GroupNorm(8, out_ch)
         self.conv2 = nn.Conv1d(out_ch, out_ch, 3, padding=1)
+        self.gn2   = nn.GroupNorm(8, out_ch)
         self.film  = FiLM(cond_dim, out_ch)
         self.act   = nn.SiLU()
         
@@ -49,9 +51,9 @@ class ResBlock(nn.Module):
             self.skip_conv = nn.Identity()
 
     def forward(self, x, c):
-        h = self.act(self.conv1(x))
+        h = self.act(self.gn1(self.conv1(x)))
         h = self.film(h, c)
-        h = self.act(self.conv2(h))
+        h = self.act(self.gn2(self.conv2(h)))
         return h + self.skip_conv(x)
 
 class UNet1D(nn.Module):
@@ -63,6 +65,11 @@ class UNet1D(nn.Module):
         self.up2   = ResBlock(256, 64, cond_dim) # Concat from down2
         self.up1   = ResBlock(128, 64, cond_dim) # Concat from down1
         self.final = nn.Conv1d(64, 2, 1)
+        
+        # Initialize final layer to be nearly zero to stabilize initial training
+        nn.init.zeros_(self.final.weight)
+        nn.init.zeros_(self.final.bias)
+        
         self.pool  = nn.AvgPool1d(2)
         self.upsample = nn.Upsample(scale_factor=2, mode='linear', align_corners=False)
 
@@ -108,7 +115,9 @@ class DiffusionModel(nn.Module):
         
         if t.ndim == 0: t = t.unsqueeze(0)
 
-        t_emb = self.time_mlp(t.float().view(-1, 1)) # [B, 64]
+        # Normalize time to [0, 1] to prevent gradient explosion from raw integers
+        t_norm = t.float().view(-1, 1) / 1000.0
+        t_emb = self.time_mlp(t_norm) # [B, 64]
         
         # Global pooling of conditions to get a sequence-level embedding
         c_in_emb = self.c_in_enc(c_in.mean(dim=-1))
@@ -156,13 +165,13 @@ class LitDiffusion(pl.LightningModule):
         avg_loss = self.trainer.callback_metrics.get("train_loss")
         if avg_loss is not None:
             notify_me(
-                subject=f"🚀 Training Progress: Epoch {self.current_epoch}",
+                subject=f"[PROGRESS] Training Progress: Epoch {self.current_epoch}",
                 body=f"Average Train Loss: {avg_loss:.6f}"
             )
 
     def on_train_end(self):
         notify_me(
-            subject="🏁 Training Complete!", 
+            subject="[DONE] Training Complete!", 
             body="The diffusion model training has finished and the final model is saved as final_water_diffusion_model.ckpt."
         )
 
