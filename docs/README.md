@@ -1,4 +1,4 @@
-# AMI HMM: Enriched Meter-Weather Dataset
+# Enriched Meter-Weather Dataset
 
 This repository contains the pipeline and analytical architecture for generating a high-resolution, enriched panel dataset of AMI water usage and local climate metrics. By the end of the pipeline, thousands of disparate meter records and API-sourced weather observations are synthesized into a unified, queryable structure.
 
@@ -64,3 +64,26 @@ high_usage_events <- panel %>%
   filter(temp_c > 30, usage > 10) %>%
   collect()
 ```
+
+---
+
+## 🧠 Model Architecture: 1D Conditional Diffusion
+
+Beyond the data pipeline, this repository implements a state-of-the-art **1D Conditional Diffusion Model** (based on DDPM) for generating synthetic residential water usage sequences. This model captures both routine human behavior and stochastic, climate-driven irrigation events.
+
+### 1. Zero-Inflated Hurdle Representation
+To handle the extreme zero-inflation of residential usage (long periods of $0.0$ flow), the model utilizes a dual-track **Hurdle Transformation**:
+*   **Occurrence Mask ($m$)**: A binary channel `[0.0, 1.0]` predicting if flow is occurring.
+*   **Log-Magnitude ($v$)**: A continuous channel representing the Z-scored log-volume of the flow.
+
+### 2. Dual-Stream 1D U-Net
+The neural backbone is a custom U-Net designed for sequence generation:
+*   **Additive Synthesis**: Two parallel streams (`UNet_in` for behavioral/indoor and `UNet_out` for climate/outdoor) are summed to produce the final noise prediction $\epsilon_\theta$.
+*   **FiLM Conditioning**: We use **Feature-wise Linear Modulation** to inject complex temporal and weather context (e.g., Growing Degree Days, 6-hour lags) directly into the model's residual blocks.
+
+### 3. Inference & Bernoulli Gating
+The model uses a deterministic **Bernoulli Gate** during the reverse diffusion process. By thresholding the predicted mask channel at 0.5, we ensure that generated sequences have perfectly "closed valves" where appropriate, eliminating the low-level noise artifacts typically found in standard diffusion models.
+
+> [!TIP]
+> For a deep dive into the mathematical implementation, dual-stream diagrams, and feature engineering details, refer to the [Full Model Architecture Documentation](MODEL_ARCHITECTURE.qmd).
+
