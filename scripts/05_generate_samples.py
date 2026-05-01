@@ -26,7 +26,7 @@ def generate_samples(checkpoint_path, num_samples=12):
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found at {checkpoint_path}")
         
-    lit_model = LitDiffusion.load_from_checkpoint(checkpoint_path, model=model_backbone)
+    lit_model = LitDiffusion.load_from_checkpoint(checkpoint_path, model=model_backbone, weights_only=True)
     lit_model.eval()
     
     # Use MPS if available (Mac M-series), otherwise CPU
