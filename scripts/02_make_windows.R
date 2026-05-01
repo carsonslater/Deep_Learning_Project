@@ -1,8 +1,7 @@
-library(dplyr)
+library(data.table)
 library(future)
 library(future.apply)
 library(arrow)
-library(purrr)
 library(fs)
 
 source("scripts/utils.R")
@@ -12,13 +11,13 @@ in_dir <- "data/features"
 out_dir <- "data/windows"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
-# Window extraction function
+# Window extraction function optimized with data.table
 make_windows <- function(df, window_size = 96) {
   n <- nrow(df)
   if (n < window_size) return(NULL)
   
-  # Target sequence: usage (x)
-  x_mat <- as.matrix(df$usage)
+  # Convert to data.table in-place to avoid copying
+  setDT(df)
   
   # c_in: month_sin/cos, dow_sin/cos, hour_sin/cos, usage_1h, usage_24h, usage_48h
   c_in_cols <- c("month_sin", "month_cos", "dow_sin", "dow_cos", "hour_sin", "hour_cos", 
@@ -28,29 +27,23 @@ make_windows <- function(df, window_size = 96) {
   c_out_cols <- c("temp_c", "precip_mm", "snow_cm", "temp_1h", "temp_24h", "temp_48h", 
                   "snow_flag", "precip_3d", "snow_24h", "gdd_7d")
   
-  c_in_mat <- as.matrix(df[, c_in_cols])
-  c_out_mat <- as.matrix(df[, c_out_cols])
+  # Pre-extract vectors and matrices for fast slicing
+  x_vec <- df$usage
+  c_in_mat <- as.matrix(df[, ..c_in_cols])
+  c_out_mat <- as.matrix(df[, ..c_out_cols])
   
   # Use rolling windows (stride = 1) for data augmentation and translation invariance
-  # This provides ~96x more training data.
   stride <- 1 
   idx <- seq(1, n - window_size + 1, by = stride)
   
-  # Optimized extraction: Pre-slice matrices
-  res <- lapply(idx, function(i) {
-    list(
-      x = x_mat[i:(i + window_size - 1), 1],
-      c_in = t(c_in_mat[i:(i + window_size - 1), ]),
-      c_out = t(c_out_mat[i:(i + window_size - 1), ])
-    )
-  })
-  
-  # Return as a tibble
-  tibble(
-    x = lapply(res, `[[`, "x"),
-    c_in = lapply(res, `[[`, "c_in"),
-    c_out = lapply(res, `[[`, "c_out")
+  # Return as a data.table with list-columns
+  dt_res <- data.table(
+    x = lapply(idx, function(i) x_vec[i:(i + window_size - 1)]),
+    c_in = lapply(idx, function(i) t(c_in_mat[i:(i + window_size - 1), ])),
+    c_out = lapply(idx, function(i) t(c_out_mat[i:(i + window_size - 1), ]))
   )
+  
+  return(dt_res)
 }
 
 process_windows <- function() {
@@ -64,7 +57,7 @@ process_windows <- function() {
     cat("Running in SANITY mode: limited to", n_limit, "meters.\n")
   }
   
-  cat("Processing", length(files), "files to generate windows (Parallel Mode)...\n")
+  cat("Processing", length(files), "files to generate windows (Parallel Mode with data.table)...\n")
   
   # Parallel Setup - use all available cores
   n_workers <- parallelly::availableCores()
@@ -72,7 +65,7 @@ process_windows <- function() {
   future::plan(multisession, workers = n_workers)
   
   total_files <- length(files)
-  chunk_size <- 100 # Process 100 homes at a time in parallel to manage memory
+  chunk_size <- 50 # Reduced from 100 to account for stride=1 memory load
   batch_id <- 1
   
   for (i in seq(1, total_files, by = chunk_size)) {
@@ -89,12 +82,12 @@ process_windows <- function() {
       return(res)
     })
     
-    # Filter out NULLs and bind
-    batch_df <- bind_rows(chunk_results)
+    # rbindlist is exponentially faster than dplyr::bind_rows for list columns
+    batch_dt <- rbindlist(chunk_results)
     
-    if (nrow(batch_df) > 0) {
+    if (nrow(batch_dt) > 0) {
       out_path <- file.path(out_dir, paste0("part_", sprintf("%05d", batch_id), ".parquet"))
-      arrow::write_parquet(batch_df, out_path)
+      arrow::write_parquet(batch_dt, out_path)
       batch_id <- batch_id + 1
     }
     
@@ -109,14 +102,13 @@ process_windows <- function() {
     }
     
     # Explicit clean up in main process
-    rm(chunk_results, batch_df)
+    rm(chunk_results, batch_dt)
     gc(full = TRUE)
   }
-
   
   cat("Window extraction complete. Wrote", batch_id - 1, "parquet files.\n")
 }
 
 process_windows()
-notify_me_done(subject = "✅ Window extraction finished (Parallel)")
+notify_me_done(subject = "✅ Window extraction finished (data.table Parallel)")
 
