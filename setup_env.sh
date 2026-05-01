@@ -32,6 +32,7 @@ uv pip install \
     pandas \
     numpy \
     torchmetrics \
+    matplotlib \
     "fsspec>=2023.6.0"
 
 # 3. R Setup
