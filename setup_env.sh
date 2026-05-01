@@ -38,7 +38,7 @@ uv pip install \
 # 3. R Setup
 echo "📊 Checking R dependencies..."
 Rscript -e '
-required_packages <- c("dplyr", "future", "future.apply", "arrow", "lubridate", "tidyr", "purrr", "zoo", "fs", "blastula", "stringr", "DBI", "duckdb")
+required_packages <- c("data.table", "dplyr", "future", "future.apply", "arrow", "lubridate", "tidyr", "purrr", "zoo", "fs", "blastula", "stringr", "DBI", "duckdb")
 missing_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
 
 if(length(missing_packages) > 0) {
