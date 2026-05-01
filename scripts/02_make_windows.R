@@ -76,44 +76,47 @@ process_windows <- function() {
 
   cat("Processing", length(files), "files to generate windows (Parallel Mode with data.table)...\n")
 
-  # Parallel Setup - use all available cores
-  n_workers <- parallelly::availableCores()
+  # Parallel Setup - leave one core open for overhead
+  n_workers <- max(1, parallelly::availableCores() - 1)
   cat("Utilizing", n_workers, "cores.\n")
   future::plan(multisession, workers = n_workers)
 
   total_files <- length(files)
-  chunk_size <- 10 # Drastically reduced to prevent 30GB memory spikes with stride=1
-  batch_id <- 1
-
+  chunk_size <- max(1, floor(total_files / 10)) # Update every 10%
+  
   for (i in seq(1, total_files, by = chunk_size)) {
     end_idx <- min(i + chunk_size - 1, total_files)
     current_chunk <- files[i:end_idx]
 
     # Process chunk in parallel
-    chunk_results <- future.apply::future_lapply(current_chunk, function(f) {
+    future.apply::future_lapply(current_chunk, future.scheduling = FALSE, function(f) {
       # ANTI-THRASHING: Force workers to be single-threaded
       # This prevents "nested parallelism" where each worker tries to use all 14 cores.
       Sys.setenv(OMP_NUM_THREADS = "1")
+      Sys.setenv(OPENBLAS_NUM_THREADS = "1")
+      Sys.setenv(MKL_NUM_THREADS = "1")
       if (requireNamespace("data.table", quietly = TRUE)) {
         data.table::setDTthreads(1)
+      }
+      if (requireNamespace("arrow", quietly = TRUE)) {
+        arrow::set_cpu_count(1)
       }
       
       df <- arrow::read_parquet(f)
       res <- make_windows(df)
+      
+      if (!is.null(res) && nrow(res) > 0) {
+        fname <- fs::path_file(f)
+        mid <- stringr::str_extract(fname, "(?<=meter_)[0-9]+")
+        out_path <- file.path(out_dir, paste0("window_meter_", mid, ".parquet"))
+        arrow::write_parquet(res, out_path)
+      }
+      
       # Clean up worker memory after processing large window matrices
-      rm(df)
+      rm(df, res)
       gc(full = TRUE)
-      return(res)
+      return(TRUE)
     })
-
-    # rbindlist is exponentially faster than dplyr::bind_rows for list columns
-    batch_dt <- data.table::rbindlist(chunk_results)
-
-    if (nrow(batch_dt) > 0) {
-      out_path <- file.path(out_dir, paste0("part_", sprintf("%05d", batch_id), ".parquet"))
-      arrow::write_parquet(batch_dt, out_path)
-      batch_id <- batch_id + 1
-    }
 
     cat(sprintf("Chunk %d complete (Homes %d-%d)\n", floor(i / chunk_size) + 1, i, end_idx))
 
@@ -127,11 +130,10 @@ process_windows <- function() {
     }
 
     # Explicit clean up in main process
-    rm(chunk_results, batch_dt)
     gc(full = TRUE)
   }
 
-  cat("Window extraction complete. Wrote", batch_id - 1, "parquet files.\n")
+  cat("Window extraction complete.\n")
 }
 
 process_windows()

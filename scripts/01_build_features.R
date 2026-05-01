@@ -103,7 +103,7 @@ process_meter_file <- function(f) {
 }
 
 # 3. Set up parallel plan
-n_workers <- parallelly::availableCores()
+n_workers <- max(1, parallelly::availableCores() - 1)
 cat("Utilizing", n_workers, "cores for feature generation.\n")
 future::plan(multisession, workers = n_workers)
 
@@ -117,9 +117,14 @@ for (i in seq(1, total_files, by = chunk_size)) {
   end_idx <- min(i + chunk_size - 1, total_files)
   current_chunk <- meter_files[i:end_idx]
 
-  results <- future.apply::future_lapply(current_chunk, function(f) {
+  results <- future.apply::future_lapply(current_chunk, future.scheduling = FALSE, function(f) {
     # ANTI-THRASHING: Force workers to be single-threaded
     Sys.setenv(OMP_NUM_THREADS = "1")
+    Sys.setenv(OPENBLAS_NUM_THREADS = "1")
+    Sys.setenv(MKL_NUM_THREADS = "1")
+    if (requireNamespace("arrow", quietly = TRUE)) {
+      arrow::set_cpu_count(1)
+    }
     process_meter_file(f)
   })
 
