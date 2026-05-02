@@ -203,7 +203,7 @@ if __name__ == "__main__":
     
     # Dataloader
     try:
-        train_dataloader = get_dataloader(batch_size=32, num_workers=0)
+        train_dataloader = get_dataloader(batch_size=16, num_workers=0)
         
         # Versioned Filename
         import datetime
@@ -229,7 +229,7 @@ if __name__ == "__main__":
         
         # Handle command line arguments
         parser = argparse.ArgumentParser()
-        parser.add_argument("--epochs", type=int, default=2, help="Number of training epochs")
+        parser.add_argument("--epochs", type=int, default=20, help="Number of training epochs")
         args = parser.parse_args()
 
         trainer = pl.Trainer(
@@ -237,7 +237,7 @@ if __name__ == "__main__":
             devices=1,
             max_epochs=args.epochs,
             precision="16-mixed",
-            accumulate_grad_batches=4,
+            accumulate_grad_batches=8,
             gradient_clip_val=1.0,
             callbacks=[checkpoint_callback, early_stop_callback]
         )

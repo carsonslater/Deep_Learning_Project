@@ -23,7 +23,7 @@ fi
 # Check for production flag
 if [[ $* == *"--full"* ]]; then
     MODE="full"
-    EPOCHS=1000
+    EPOCHS=20
     echo "[MODE] FULL PRODUCTION RUN (All meters, $EPOCHS epochs)"
 else
     echo "[MODE] SANITY CHECK ($LIMIT meters, $EPOCHS epochs)"
