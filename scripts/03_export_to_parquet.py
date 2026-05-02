@@ -5,7 +5,7 @@ import numpy as np
 import math
 
 class WaterDataset(IterableDataset):
-    def __init__(self, data_dir="data/windows/", batch_size=2048):
+    def __init__(self, data_dir="data/windows/", batch_size=512):
         super().__init__()
         self.data_dir = data_dir
         self.dataset = ds.dataset(data_dir, format="parquet")
@@ -90,9 +90,9 @@ class WaterDataset(IterableDataset):
                 if torch.isnan(c_in[i]).any() or torch.isinf(c_in[i]).any(): continue
                 if torch.isnan(c_out[i]).any() or torch.isinf(c_out[i]).any(): continue
                 
-                yield x[i], c_in[i], c_out[i]
+                yield x[i].clone(), c_in[i].clone(), c_out[i].clone()
 
-def get_dataloader(data_dir="data/windows/", batch_size=64, num_workers=0):
+def get_dataloader(data_dir="data/windows/", batch_size=32, num_workers=0):
     dataset = WaterDataset(data_dir=data_dir)
     loader = DataLoader(
         dataset,

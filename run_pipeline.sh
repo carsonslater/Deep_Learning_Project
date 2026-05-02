@@ -77,6 +77,8 @@ if [ -f "final_water_diffusion_model.ckpt" ]; then
     echo "[DONE] Stage 4 skipped: Model checkpoint 'final_water_diffusion_model.ckpt' already exists."
 else
     source .venv/bin/activate
+    # Prevent MPS from keeping an unbounded memory cache
+    export PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0
     python3 scripts/04_train_diffusion.py --epochs $EPOCHS
 fi
 

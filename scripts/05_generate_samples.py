@@ -76,9 +76,9 @@ def generate_samples(checkpoint_path, num_samples=12):
         x = torch.randn(num_samples, 2, 96).to(device)
         
         T = lit_model.T
-        alphas = lit_model.alphas.to(device)
-        alphas_hat = lit_model.alphas_hat.to(device)
-        betas = lit_model.betas.to(device)
+        alphas = lit_model.alphas
+        alphas_hat = lit_model.alphas_hat
+        betas = lit_model.betas
         
         for t in reversed(range(T)):
             t_batch = torch.full((num_samples,), t, device=device, dtype=torch.long)

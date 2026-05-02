@@ -137,9 +137,13 @@ class LitDiffusion(pl.LightningModule):
         self.model = model
         self.T = T
         # Simple linear schedule
-        self.betas = torch.linspace(1e-4, 0.02, T)
-        self.alphas = 1 - self.betas
-        self.alphas_hat = torch.cumprod(self.alphas, dim=0)
+        betas = torch.linspace(1e-4, 0.02, T)
+        alphas = 1 - betas
+        alphas_hat = torch.cumprod(alphas, dim=0)
+        
+        self.register_buffer("betas", betas)
+        self.register_buffer("alphas", alphas)
+        self.register_buffer("alphas_hat", alphas_hat)
 
     def forward(self, x, t, c_in, c_out):
         return self.model(x, t, c_in, c_out)
@@ -152,7 +156,7 @@ class LitDiffusion(pl.LightningModule):
         t = torch.randint(0, self.T, (batch_size,), device=self.device)
         noise = torch.randn_like(x_0)
         
-        alpha_hat = self.alphas_hat.to(self.device)[t].view(-1, 1, 1)
+        alpha_hat = self.alphas_hat[t].view(-1, 1, 1)
         x_t = torch.sqrt(alpha_hat) * x_0 + torch.sqrt(1 - alpha_hat) * noise
         
         eps_theta = self.model(x_t, t, c_in, c_out)
@@ -199,7 +203,7 @@ if __name__ == "__main__":
     
     # Dataloader
     try:
-        train_dataloader = get_dataloader(batch_size=128, num_workers=0)
+        train_dataloader = get_dataloader(batch_size=32, num_workers=0)
         
         # Versioned Filename
         import datetime
@@ -232,7 +236,8 @@ if __name__ == "__main__":
             accelerator=accelerator,
             devices=1,
             max_epochs=args.epochs,
-            precision=32,
+            precision="16-mixed",
+            accumulate_grad_batches=4,
             gradient_clip_val=1.0,
             callbacks=[checkpoint_callback, early_stop_callback]
         )
