@@ -103,7 +103,10 @@ The final noise prediction is simply $\epsilon_\theta = \epsilon_{in} + \epsilon
 
 #### 3.2 FiLM Layers
 Instead of concatenating conditions to the input, the encoded vectors $c$ shift and scale the intermediate activations $h$ of the U-Net's Residual Blocks:
-$$ h' = h \odot \gamma(c) + \beta(c) $$
+
+$$
+h' = h \odot \gamma(c) + \beta(c)
+$$
 
 ### 4. Diffusion Mathematics
 
@@ -113,20 +116,29 @@ The model operates under the framework of Denoising Diffusion Probabilistic Mode
 We define a fixed variance schedule $\beta_1, \dots, \beta_T$. Let $\alpha_t = 1 - \beta_t$ and $\bar{\alpha}_t = \prod_{s=1}^t \alpha_s$.
 The forward process corrupts the true 2-channel data $x_0$ with Gaussian noise $\epsilon \sim \mathcal{N}(0, I)$:
 
-$$ q(x_t \mid x_0) = \mathcal{N}(x_t ; \sqrt{\bar{\alpha}_t} x_0, (1 - \bar{\alpha}_t)I) $$
+$$
+q(x_t \mid x_0) = \mathcal{N}(x_t ; \sqrt{\bar{\alpha}_t} x_0, (1 - \bar{\alpha}_t)I)
+$$
 
 Which yields the closed-form sampling step:
-$$ x_t = \sqrt{\bar{\alpha}_t}x_0 + \sqrt{1 - \bar{\alpha}_t}\epsilon $$
+
+$$
+x_t = \sqrt{\bar{\alpha}_t}x_0 + \sqrt{1 - \bar{\alpha}_t}\epsilon
+$$
 
 #### 4.2 Training Objective
 The network learns to reverse the process by predicting the injected noise $\epsilon$. Because the model outputs a 2-channel tensor matching the shape of $x_0$, a standard Mean Squared Error (MSE) loss simultaneously trains both the mask and the magnitude objectives:
 
-$$ \mathcal{L}_{MSE} = \mathbb{E}_{t, x_0, \epsilon} \left[ \left\| \epsilon - \epsilon_\theta(x_t, t, c_{in}, c_{out}) \right\|^2 \right] $$
+$$
+\mathcal{L}_{MSE} = \mathbb{E}_{t, x_0, \epsilon} \left[ \left\| \epsilon - \epsilon_\theta(x_t, t, c_{in}, c_{out}) \right\|^2 \right]
+$$
 
 #### 4.3 Reverse Process & Inference (Bernoulli Gating)
 During sampling, we start with pure Gaussian noise $x_T \sim \mathcal{N}(0, I)$ and iteratively denoise using the trained model:
 
-$$ x_{t-1} = \frac{1}{\sqrt{\alpha_t}} \left( x_t - \frac{1 - \alpha_t}{\sqrt{1 - \bar{\alpha}_t}} \epsilon_\theta(x_t, t, c) \right) + \sqrt{\beta_t} z $$
+$$
+x_{t-1} = \frac{1}{\sqrt{\alpha_t}} \left( x_t - \frac{1 - \alpha_t}{\sqrt{1 - \bar{\alpha}_t}} \epsilon_\theta(x_t, t, c) \right) + \sqrt{\beta_t} z
+$$
 
 Once we reach $x_0$, we possess a 2-channel array: $\hat{m}$ (Mask Logits) and $\hat{v}$ (Normalized Log-Magnitude). We pass this through a deterministic **Bernoulli Gate** to perfectly reconstruct the zero-inflated real-world usage:
 
@@ -142,7 +154,10 @@ graph LR
 ```
 
 Mathematically, the final generated water usage $y$ is:
-$$ y = \mathbb{I}(\hat{m} > 0.5) \cdot \max\left( \exp(\hat{v} \cdot \sigma + \mu) - 1, \, 0 \right) $$
+
+$$
+y = \mathbb{1}(\hat{m} > 0.5) \cdot \max\left( \exp(\hat{v} \cdot \sigma + \mu) - 1, 0 \right)
+$$
 
 ---
 
