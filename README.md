@@ -113,7 +113,11 @@ $$
 The model operates under the framework of Denoising Diffusion Probabilistic Models (DDPM).
 
 #### 4.1 Forward Process (Adding Noise)
-We define a fixed variance schedule $\beta_1, \dots, \beta_T$. Let $\alpha_t = 1 - \beta_t$ and $\bar{\alpha}_t = \prod_{s=1}^t \alpha_s$.
+We define a fixed variance schedule $\beta_1, \dots, \beta_T$. Let $\alpha_t = 1 - \beta_t$ and:
+
+$$
+\bar{\alpha}_t = \prod_{s=1}^t \alpha_s
+$$
 The forward process corrupts the true 2-channel data $x_0$ with Gaussian noise $\epsilon \sim \mathcal{N}(0, I)$:
 
 $$
