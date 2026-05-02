@@ -165,6 +165,15 @@ class LitDiffusion(pl.LightningModule):
         self.log("train_loss", loss, prog_bar=True)
         return loss
 
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        # Notify every 10,000 batches (~20 mins)
+        if (batch_idx + 1) % 10000 == 0:
+            loss = outputs['loss'] if isinstance(outputs, dict) else outputs
+            notify_me(
+                subject=f"[STEP] Training Progress: Batch {batch_idx + 1}",
+                body=f"Current Batch Loss: {loss:.6f}\nThis model is training on the full M4 architecture."
+            )
+
     def on_train_epoch_end(self):
         avg_loss = self.trainer.callback_metrics.get("train_loss")
         if avg_loss is not None:
@@ -205,18 +214,34 @@ if __name__ == "__main__":
     try:
         train_dataloader = get_dataloader(batch_size=16, num_workers=0)
         
+        # Checkpoints Directory
+        checkpoint_dir = os.path.join(os.getcwd(), "models")
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        
         # Versioned Filename
         import datetime
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         model_name = f"water_diffusion_{timestamp}"
         
+        # Auto-Resume Logic: Find the latest checkpoint if it exists
+        import glob
+        ckpt_list = glob.glob(os.path.join(checkpoint_dir, "*.ckpt"))
+        latest_ckpt = None
+        if ckpt_list:
+            latest_ckpt = max(ckpt_list, key=os.path.getmtime)
+            print(f"[RESUME] Found existing checkpoint: {os.path.basename(latest_ckpt)}")
+            print("[RESUME] Training will continue from the last saved step.")
+        else:
+            print("[NEW] No existing checkpoints found. Starting fresh training.")
+        
         # Setup PyTorch Lightning Trainer
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
-            dirpath=os.getcwd(),
-            filename=model_name,
+            dirpath=checkpoint_dir,
+            filename=model_name + "-{step}",
             save_top_k=1,
             monitor="train_loss",
-            mode="min"
+            mode="min",
+            every_n_train_steps=10000 # Save to SSD every ~20 mins
         )
         
         early_stop_callback = pl.callbacks.EarlyStopping(
@@ -236,6 +261,8 @@ if __name__ == "__main__":
             accelerator=accelerator,
             devices=1,
             max_epochs=args.epochs,
+            val_check_interval=10000,     # Check loss/EarlyStopping every ~1 hour
+            check_val_every_n_epoch=None, # Allow mid-epoch checks
             precision="16-mixed",
             accumulate_grad_batches=8,
             gradient_clip_val=1.0,
@@ -243,17 +270,40 @@ if __name__ == "__main__":
         )
         
         print(f"Starting training (Checkpoint: {model_name}.ckpt)...")
-        trainer.fit(lit_model, train_dataloader)
+        try:
+            trainer.fit(lit_model, train_dataloader, ckpt_path=latest_ckpt)
+        except KeyboardInterrupt:
+            print("\n[INTERRUPT] Training interrupted by user. Saving best checkpoint so far...")
+        finally:
+            # This block runs even if you hit Control+C
+            best_path = checkpoint_callback.best_model_path
+            if best_path and os.path.exists(best_path):
+                # 1. Save a clean dated copy for the user
+                current_date = datetime.datetime.now().strftime("%Y-%m-%d")
+                human_dated_name = f"final_water_diffusion_model_{current_date}.ckpt"
+                shutil.copyfile(best_path, human_dated_name)
+                
+                # 2. Save a generic copy for the pipeline scripts
+                shutil.copyfile(best_path, "final_water_diffusion_model.ckpt")
+                
+                print(f"\n[DONE] Training exit handled.")
+                print(f"Archive copy: {human_dated_name}")
+                print(f"Pipeline copy: final_water_diffusion_model.ckpt")
+                
+                # Notify the user on exit
+                notify_me(
+                    subject="[DONE] Training Session Ended",
+                    body=f"The training has stopped and the best model has been saved as {human_dated_name}.\nCheck synthetic_samples_poc.png for results."
+                )
+            else:
+                print("No checkpoint found to save.")
         
-        # Save explicit final copy with timestamp
-        final_path = f"{model_name}_final.ckpt"
-        trainer.save_checkpoint(final_path)
-        
-        # Create a copy as 'final_water_diffusion_model.ckpt' for the pipeline scripts
-        import shutil
-        shutil.copyfile(final_path, "final_water_diffusion_model.ckpt")
-        
-        print(f"Training finished. Model saved as {final_path} and synced to final_water_diffusion_model.ckpt")
+        print(f"Training session concluded.")
         
     except Exception as e:
-        print(f"Failed to start training. Error: {e}")
+        error_msg = f"Training failed or crashed. Error: {str(e)}"
+        print(error_msg)
+        notify_me(
+            subject="[ERROR] Training Crashed!",
+            body=error_msg
+        )
