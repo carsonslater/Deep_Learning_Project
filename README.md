@@ -21,8 +21,6 @@ There is a significant need for a robust tool capable of simulating realistic re
 ## The Goal
 This repository serves as a proof-of-concept for using a **1D Conditional Diffusion Model** to generate highly realistic, synthetic residential water usage data. By modeling the complex diurnal patterns and weather-driven irrigation events of individual households, we aim to provide a foundation for a generative tool that researchers can use for end-use disaggregation.
 
-![Synthetic Samples](images/synthetic_samples_poc.png)
-
 ## State of the Art
 Currently, the state-of-the-art simulator for this domain is [STREaM](https://github.com/acominola/STREaM) by Cominola et al. (2016). Our approach explores modern deep generative models (specifically, Denoising Diffusion Probabilistic Models) as a novel alternative to create similar simulation tools.
 
@@ -74,8 +72,6 @@ To solve this mathematically, the Dataloader applies a **Hurdle Transformation**
 ### 3. Network Architecture
 
 The backbone is a **Dual-Stream 1D U-Net** utilizing FiLM (Feature-wise Linear Modulation) conditioning.
-
-![UNet Architecture](images/diffusion_unet_u_shape.png)
 
 ```mermaid
 graph TD
