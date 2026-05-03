@@ -293,7 +293,7 @@ if __name__ == "__main__":
                 # Notify the user on exit
                 notify_me(
                     subject="[DONE] Training Session Ended",
-                    body=f"The training has stopped and the best model has been saved as {human_dated_name}.\nCheck synthetic_samples_poc.png for results."
+                    body=f"The training has stopped and the best model has been saved as {human_dated_name}.\nCheck images/synthetic_samples_poc.png for results."
                 )
             else:
                 print("No checkpoint found to save.")

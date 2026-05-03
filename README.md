@@ -21,6 +21,8 @@ There is a significant need for a robust tool capable of simulating realistic re
 ## The Goal
 This repository serves as a proof-of-concept for using a **1D Conditional Diffusion Model** to generate highly realistic, synthetic residential water usage data. By modeling the complex diurnal patterns and weather-driven irrigation events of individual households, we aim to provide a foundation for a generative tool that researchers can use for end-use disaggregation.
 
+![Synthetic Samples](images/synthetic_samples_poc.png)
+
 ## State of the Art
 Currently, the state-of-the-art simulator for this domain is [STREaM](https://github.com/acominola/STREaM) by Cominola et al. (2016). Our approach explores modern deep generative models (specifically, Denoising Diffusion Probabilistic Models) as a novel alternative to create similar simulation tools.
 
@@ -43,15 +45,16 @@ The model operates on high-resolution Advanced Metering Infrastructure (AMI) dat
 #### 1.1 Feature Dictionary
 The model is conditioned on two explicit streams of information to separate human diurnal behavior from stochastic climate-driven behavior (like irrigation).
 
-* **Indoor/Behavioral Stream (`c_in`, 10 features)**
+* **Indoor/Behavioral Stream (`c_in`, 12 features)**
   * **Temporal Cyclicals (`month_sin/cos`, `dow_sin/cos`, `hour_sin/cos`)**: Bounded `[-1, 1]` trigonometric encodings that allow the model to learn the cyclical nature of time seamlessly.
-  * **Lagged Usage (`usage_1h`, `usage_6h`, `usage_24h`, `usage_48h`)**: Log-normalized historical usage allowing the model to condition on recent and mid-range household activity states.
+  * **Lagged Usage (`usage_15m`, `usage_30m`, `usage_1h`, `usage_6h`, `usage_24h`, `usage_48h`)**: Log-normalized historical usage allowing the model to condition on recent and mid-range household activity states.
 
 * **Outdoor/Climate Stream (`c_out`, 10 features)**
   * **Current Climate**: `temp_c`, `precip_mm`, `snow_cm`, `snow_flag`.
   * **Lagged Climate**: `temp_1h`, `temp_24h`, `temp_48h`.
   * **Accumulated Climate Variables**:
     * `precip_3d`: 3-day rolling sum of precipitation.
+    * `snow_24h`: 24-hour rolling sum of snowfall.
     * `gdd_7d`: 7-day rolling sum of Growing Degree Days.
 
 #### 1.2 Rolling Windows (Translation Invariance)
@@ -71,6 +74,8 @@ To solve this mathematically, the Dataloader applies a **Hurdle Transformation**
 ### 3. Network Architecture
 
 The backbone is a **Dual-Stream 1D U-Net** utilizing FiLM (Feature-wise Linear Modulation) conditioning.
+
+![UNet Architecture](images/diffusion_unet_u_shape.png)
 
 ```mermaid
 graph TD
@@ -107,6 +112,92 @@ Instead of concatenating conditions to the input, the encoded vectors $c$ shift 
 $$
 h' = h \odot \gamma(c) + \beta(c)
 $$
+
+#### 3.3 U-Net Architecture
+
+<details>
+<summary><b>Click to expand: Internal 1D U-Net Tensor Mathematics</b></summary>
+<br>
+
+```mermaid
+graph TD
+    %% Styling
+    classDef input fill:#fcf4cd,stroke:#333,stroke-width:1px;
+    classDef block fill:#cde9ce,stroke:#333,stroke-width:1px;
+    classDef op fill:#ffffff,stroke:#333,stroke-width:1px;
+    classDef skip stroke:#333,stroke-width:2px,stroke-dasharray: 5 5;
+
+    subgraph Conditioning ["Conditioning Context"]
+        T["Time Embedding<br>(1, 64)"]:::input
+        C["Covariates (c_in + c_out)<br>(1, 128)"]:::input
+        CatCond(("Concat")):::op
+        Context["Combined Context c<br>(1, 192)"]:::block
+        
+        T --> CatCond
+        C --> CatCond
+        CatCond --> Context
+    end
+
+    subgraph Encoder ["Encoder (Contracting Path)"]
+        X["x_t: Noisy Input<br>(1, 2, 96)"]:::input
+        
+        RB1["ResBlock 1<br>+ FiLM Injection<br>Out: (1, 64, 96)"]:::block
+        Pool1["AvgPool1d<br>Out: (1, 64, 48)"]:::op
+        
+        RB2["ResBlock 2<br>+ FiLM Injection<br>Out: (1, 128, 48)"]:::block
+        Pool2["AvgPool1d<br>Out: (1, 128, 24)"]:::op
+    end
+
+    subgraph Bottleneck ["Bottleneck"]
+        RB3["ResBlock 3<br>+ FiLM Injection<br>Out: (1, 128, 24)"]:::block
+    end
+
+    subgraph Decoder ["Decoder (Expansive Path)"]
+        Up1["Upsample 1d<br>Out: (1, 128, 48)"]:::op
+        Cat1(("Concat")):::op
+        RB4["ResBlock 4<br>+ FiLM Injection<br>Out: (1, 64, 48)"]:::block
+        
+        Up2["Upsample 1d<br>Out: (1, 64, 96)"]:::op
+        Cat2(("Concat")):::op
+        RB5["ResBlock 5<br>+ FiLM Injection<br>Out: (1, 64, 96)"]:::block
+    end
+
+    subgraph Output ["Output Head"]
+        FinalConv["Conv1d<br>Out: (1, 2, 96)"]:::block
+        Eps["Predicted Noise ε_θ<br>(1, 2, 96)"]:::input
+    end
+
+    %% Main Data Flow
+    X --> RB1
+    RB1 --> Pool1
+    Pool1 --> RB2
+    RB2 --> Pool2
+    Pool2 --> RB3
+
+    RB3 --> Up1
+    Up1 --> Cat1
+    Cat1 -->|"(1, 256, 48)"| RB4
+    
+    RB4 --> Up2
+    Up2 --> Cat2
+    Cat2 -->|"(1, 128, 96)"| RB5
+    
+    RB5 --> FinalConv
+    FinalConv --> Eps
+
+    %% Skip Connections
+    RB2 -.->|"Skip Connection<br>(1, 128, 48)"| Cat1
+    RB1 -.->|"Skip Connection<br>(1, 64, 96)"| Cat2
+
+    %% Conditioning Flow
+    Context -.->|"FiLM parameters (γ, β)"| RB1
+    Context -.->|"FiLM parameters (γ, β)"| RB2
+    Context -.->|"FiLM parameters (γ, β)"| RB3
+    Context -.->|"FiLM parameters (γ, β)"| RB4
+    Context -.->|"FiLM parameters (γ, β)"| RB5
+```
+
+</details>
 
 ### 4. Diffusion Mathematics
 

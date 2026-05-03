@@ -151,8 +151,8 @@ def generate_samples(checkpoint_path, num_samples=12):
     ax.legend(frameon=False, loc='upper right', fontsize=10)
     
     plt.tight_layout()
-    plt.savefig("synthetic_samples_poc.png", facecolor='#0a0a0a')
-    print("Successfully generated samples and saved to synthetic_samples_poc.png")
+    plt.savefig("images/synthetic_samples_poc.png", facecolor='#0a0a0a')
+    print("Successfully generated samples and saved to images/synthetic_samples_poc.png")
     
     return samples
 
