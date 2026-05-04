@@ -33,7 +33,8 @@ uv pip install \
     numpy \
     torchmetrics \
     matplotlib \
-    "fsspec>=2023.6.0"
+    "fsspec>=2023.6.0" \
+    psutil
 
 # 3. R Setup
 echo "Checking R dependencies..."
