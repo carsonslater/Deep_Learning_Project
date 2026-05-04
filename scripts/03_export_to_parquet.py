@@ -18,6 +18,11 @@ class WaterDataset(IterableDataset):
             for key, val in stats.items():
                 setattr(self, key, val)
 
+    def __len__(self):
+        # Extremely fast metadata read to get total rows
+        total_rows = sum(fragment.metadata.num_rows for fragment in self.dataset.get_fragments())
+        return total_rows
+
     def __iter__(self):
         worker_info = torch.utils.data.get_worker_info()
         all_files = self.dataset.files

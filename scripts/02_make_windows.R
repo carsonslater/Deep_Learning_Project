@@ -39,8 +39,8 @@ make_windows <- function(df, window_size = 96) {
   c_in_mat <- as.matrix(df[, ..c_in_cols])
   c_out_mat <- as.matrix(df[, ..c_out_cols])
 
-  # Use rolling windows (stride = 1) for data augmentation and translation invariance
-  stride <- 1
+  # Use non-overlapping windows (stride = 96) for fast, highly diverse training
+  stride <- 96
   raw_idx <- seq(1, n - window_size + 1, by = stride)
 
   # [CRITICAL FIX] Ensure Windows are Temporally Continuous

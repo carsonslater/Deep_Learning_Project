@@ -162,16 +162,33 @@ class LitDiffusion(pl.LightningModule):
         eps_theta = self.model(x_t, t, c_in, c_out)
         loss = nn.MSELoss()(eps_theta, noise)
         
-        self.log("train_loss", loss, prog_bar=True)
+        self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
         return loss
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
         # Notify every 10,000 batches (~20 mins)
         if (batch_idx + 1) % 10000 == 0:
+            import psutil
+            mem = psutil.virtual_memory()
+            swap = psutil.swap_memory()
+            mem_pct = mem.percent
+            swap_pct = swap.percent
+            
+            # Estimate epoch progress
+            total_batches = getattr(self.trainer, "limit_train_batches", "Unknown")
+            if isinstance(total_batches, int) and total_batches > 0:
+                epoch_pct = ((batch_idx + 1) / total_batches) * 100
+                epoch_str = f"{epoch_pct:.2f}%"
+            else:
+                epoch_str = "Unknown%"
+                
             loss = outputs['loss'] if isinstance(outputs, dict) else outputs
             notify_me(
                 subject=f"[STEP] Training Progress: Batch {batch_idx + 1}",
-                body=f"Current Batch Loss: {loss:.6f}\nThis model is training on the full M4 architecture."
+                body=f"Current Batch Loss: {loss:.6f}\n"
+                     f"RAM Use: {mem_pct}%\n"
+                     f"Swap Use: {swap_pct}%\n"
+                     f"Epoch Done: {epoch_str}"
             )
 
     def on_train_epoch_end(self):
@@ -238,16 +255,17 @@ if __name__ == "__main__":
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
             dirpath=checkpoint_dir,
             filename=model_name + "-{step}",
-            save_top_k=1,
-            monitor="train_loss",
+            save_top_k=3, # Keep the 3 best models found
+            save_last=True, # ALWAYS keep the most recent one (last.ckpt)
+            monitor="train_loss_step", # Monitor the per-step loss for mid-epoch saves
             mode="min",
-            every_n_train_steps=10000 # Save to SSD every ~20 mins
+            every_n_train_steps=20000 # Save to SSD every ~45 mins
         )
         
         early_stop_callback = pl.callbacks.EarlyStopping(
-            monitor="train_loss",
-            patience=10,
-            min_delta=1e-4, # Low tolerance for convergence
+            monitor="train_loss_step",
+            patience=20, # Give it 20 checks (400,000 batches) to improve
+            min_delta=1e-4, 
             verbose=True,
             mode="min"
         )
@@ -257,10 +275,18 @@ if __name__ == "__main__":
         parser.add_argument("--epochs", type=int, default=20, help="Number of training epochs")
         args = parser.parse_args()
 
+        # Calculate total batches for the progress bar
+        try:
+            total_rows = len(train_dataloader.dataset)
+            total_batches = total_rows // 16 # Batch size is 16
+        except Exception:
+            total_batches = 1.0 # Fallback for IterableDataset if __len__ fails
+
         trainer = pl.Trainer(
             accelerator=accelerator,
             devices=1,
             max_epochs=args.epochs,
+            limit_train_batches=total_batches, # Feeds the progress bar
             val_check_interval=10000,     # Check loss/EarlyStopping every ~1 hour
             check_val_every_n_epoch=None, # Allow mid-epoch checks
             precision="16-mixed",

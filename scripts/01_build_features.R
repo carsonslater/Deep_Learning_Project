@@ -91,8 +91,8 @@ process_meter_file <- function(f) {
 
   df <- arrow::read_parquet(f)
 
-  # Filter for 2024 data only
-  df <- df %>% dplyr::filter(lubridate::year(date_time) == 2024)
+  # Filter for 2023 and 2024 data
+  df <- df %>% dplyr::filter(lubridate::year(date_time) %in% c(2023, 2024))
 
   if (nrow(df) > 0) {
     df_features <- build_features(df)

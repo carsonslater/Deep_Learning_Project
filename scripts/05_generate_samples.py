@@ -111,7 +111,8 @@ def generate_samples(checkpoint_path, num_samples=12):
         log_std = stats["log_std"]
     
     # Inverse Transform
-    gate = (occurrence_mask > 0.5).astype(float)
+    # Lowered threshold to 0.2 to capture early-training model intuition
+    gate = (occurrence_mask > 0.2).astype(float)
     unscaled_log = (log_magnitude * log_std) + log_mean
     
     # Cap unscaled_log to prevent np.expm1 overflow (inf) from an untrained model's noise
@@ -161,7 +162,7 @@ if __name__ == "__main__":
     ckpt_path = os.path.abspath("final_water_diffusion_model.ckpt")
         
     try:
-        generate_samples(ckpt_path)
+        generate_samples(ckpt_path, num_samples=50)
     except Exception as e:
         print(f"Error during generation: {e}")
         import traceback
