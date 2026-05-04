@@ -252,6 +252,7 @@ if __name__ == "__main__":
             print("[NEW] No existing checkpoints found. Starting fresh training.")
         
         # Setup PyTorch Lightning Trainer
+        # If accumulate_grad_batches=8, then 2,500 steps = 20,000 batches
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
             dirpath=checkpoint_dir,
             filename=model_name + "-{step}",
@@ -259,7 +260,7 @@ if __name__ == "__main__":
             save_last=True, # ALWAYS keep the most recent one (last.ckpt)
             monitor="train_loss_step", # Monitor the per-step loss for mid-epoch saves
             mode="min",
-            every_n_train_steps=20000 # Save to SSD every ~45 mins
+            every_n_train_steps=2500 # Save every 20,000 batches (2500 steps * 8 acc)
         )
         
         early_stop_callback = pl.callbacks.EarlyStopping(
