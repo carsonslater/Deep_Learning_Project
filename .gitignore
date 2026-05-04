@@ -25,14 +25,39 @@ __pycache__/
 # ML Artifacts
 *.ckpt
 lightning_logs/
+models/
 
 # OS
 .DS_Store
 
 # Images
 *.png
+*.svg
 
-# Presentations
-Presentation/
-WriteUp/
+# LaTeX and Build Artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.pdf
+*.html
+*.tex
+*.bib
+*.bst
+*.cls
+*.RProj
 
+# Quarto / Presentation Build Artifacts
+.quarto/
+*_files/
+*_cache/
+*.yml
+*.scss
+*.qmd
+
+README

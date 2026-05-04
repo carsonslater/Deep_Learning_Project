@@ -99,15 +99,28 @@ def main():
                 input_data=[x, t_emb, c],
                 expand_nested=True,
                 graph_name="UNet1D",
-                depth=2
+                depth=1
             )
-            # Set high DPI for PNG resolution
-            model_graph.visual_graph.graph_attr['dpi'] = '300'
             
+            # High-fidelity attributes for a readable vertical paper figure
+            model_graph.visual_graph.graph_attr.update({
+                'dpi':     '300',
+                'rankdir': 'TB',         # Top-to-bottom layout
+                'ranksep': '0.5',
+                'nodesep': '0.3',
+                'margin':  '0.1',
+            })
+            model_graph.visual_graph.node_attr.update({
+                'fontsize': '10',
+                'shape':    'box',
+            })
+            
+            # Render in multiple formats
             model_graph.visual_graph.render(save_path_torchview, format="png", cleanup=True)
-            # Also save as SVG for perfect scalability
             model_graph.visual_graph.render(save_path_torchview, format="svg", cleanup=True)
-            print(f"Success! High-res diagrams generated: {save_path_torchview}.png and .svg")
+            model_graph.visual_graph.render(save_path_torchview, format="pdf", cleanup=True)
+            
+            print(f"Success! High-res diagrams generated: {save_path_torchview}.png, .svg, and .pdf")
         except Exception as e:
             import traceback
             print(f"torchview Visualization failed: {e}")

@@ -206,7 +206,7 @@ class LitDiffusion(pl.LightningModule):
         )
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=1e-4)
+        return torch.optim.Adam(self.parameters(), lr=5e-5)
 
 if __name__ == "__main__":
     print("Setting up training...")
@@ -240,23 +240,28 @@ if __name__ == "__main__":
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         model_name = f"water_diffusion_{timestamp}"
         
-        # Auto-Resume Logic: Find the latest checkpoint if it exists
+        # Auto-Resume Logic: Find the most recent versioned checkpoint (ignoring last.ckpt)
         import glob
+        checkpoint_dir = os.path.join(os.getcwd(), "models")
         ckpt_list = glob.glob(os.path.join(checkpoint_dir, "*.ckpt"))
+        
+        # Filter out 'last.ckpt' to avoid potential NaN-corrupted states
+        versioned_ckpts = [c for c in ckpt_list if "last.ckpt" not in os.path.basename(c)]
+        
         latest_ckpt = None
-        if ckpt_list:
-            latest_ckpt = max(ckpt_list, key=os.path.getmtime)
-            print(f"[RESUME] Found existing checkpoint: {os.path.basename(latest_ckpt)}")
-            print("[RESUME] Training will continue from the last saved step.")
+        if versioned_ckpts:
+            latest_ckpt = max(versioned_ckpts, key=os.path.getmtime)
+            print(f"[RESUME] Found most recent versioned checkpoint: {os.path.basename(latest_ckpt)}")
+            print("[RESUME] Avoiding last.ckpt to ensure model health.")
         else:
-            print("[NEW] No existing checkpoints found. Starting fresh training.")
+            print("[NEW] No versioned checkpoints found. Starting fresh training.")
         
         # Setup PyTorch Lightning Trainer
         # If accumulate_grad_batches=8, then 2,500 steps = 20,000 batches
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
             dirpath=checkpoint_dir,
             filename=model_name + "-{step}",
-            save_top_k=3, # Keep the 3 best models found
+            save_top_k=5, # Keep more for better recovery options
             save_last=True, # ALWAYS keep the most recent one (last.ckpt)
             monitor="train_loss_step", # Monitor the per-step loss for mid-epoch saves
             mode="min",
@@ -290,9 +295,9 @@ if __name__ == "__main__":
             limit_train_batches=total_batches, # Feeds the progress bar
             val_check_interval=10000,     # Check loss/EarlyStopping every ~1 hour
             check_val_every_n_epoch=None, # Allow mid-epoch checks
-            precision="16-mixed",
+            precision=32, # Use full precision for stability on MPS
             accumulate_grad_batches=8,
-            gradient_clip_val=1.0,
+            gradient_clip_val=0.5,
             callbacks=[checkpoint_callback, early_stop_callback]
         )
         
