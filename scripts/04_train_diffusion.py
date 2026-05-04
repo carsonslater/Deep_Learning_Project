@@ -7,6 +7,8 @@ import os
 import importlib
 import subprocess
 import argparse
+import gc
+import shutil
 
 # Ensure we can import the dataloader
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -162,7 +164,7 @@ class LitDiffusion(pl.LightningModule):
         eps_theta = self.model(x_t, t, c_in, c_out)
         loss = nn.MSELoss()(eps_theta, noise)
         
-        self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
+        self.log("train_loss", loss.detach(), prog_bar=True, on_step=True, on_epoch=True)
         return loss
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
@@ -190,6 +192,8 @@ class LitDiffusion(pl.LightningModule):
                      f"Swap Use: {swap_pct}%\n"
                      f"Epoch Done: {epoch_str}"
             )
+            # Force cleanup of memory every 10,000 batches
+            gc.collect()
 
     def on_train_epoch_end(self):
         avg_loss = self.trainer.callback_metrics.get("train_loss")
@@ -295,7 +299,7 @@ if __name__ == "__main__":
             limit_train_batches=total_batches, # Feeds the progress bar
             val_check_interval=10000,     # Check loss/EarlyStopping every ~1 hour
             check_val_every_n_epoch=None, # Allow mid-epoch checks
-            precision=32, # Use full precision for stability on MPS
+            precision="16-mixed", # Switch back to 16-bit for memory; LR/Clipping will provide stability
             accumulate_grad_batches=8,
             gradient_clip_val=0.5,
             callbacks=[checkpoint_callback, early_stop_callback]
