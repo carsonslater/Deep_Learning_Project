@@ -164,7 +164,12 @@ class LitDiffusion(pl.LightningModule):
         eps_theta = self.model(x_t, t, c_in, c_out)
         loss = nn.MSELoss()(eps_theta, noise)
         
-        self.log("train_loss", loss.detach(), prog_bar=True, on_step=True, on_epoch=True)
+        self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
+        
+        # NaN Shield: Immediate stop if loss explodes
+        if torch.isnan(loss):
+            raise ValueError("NaN loss detected! Stopping training to prevent checkpoint poisoning.")
+            
         return loss
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
@@ -299,9 +304,9 @@ if __name__ == "__main__":
             limit_train_batches=total_batches, # Feeds the progress bar
             val_check_interval=10000,     # Check loss/EarlyStopping every ~1 hour
             check_val_every_n_epoch=None, # Allow mid-epoch checks
-            precision="16-mixed", # Switch back to 16-bit for memory; LR/Clipping will provide stability
+            precision="32-true",          # Full 32-bit for stability
             accumulate_grad_batches=8,
-            gradient_clip_val=0.5,
+            gradient_clip_val=1.0,
             callbacks=[checkpoint_callback, early_stop_callback]
         )
         
@@ -311,9 +316,16 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             print("\n[INTERRUPT] Training interrupted by user. Saving best checkpoint so far...")
         finally:
-            # This block runs even if you hit Control+C
+            # This block runs even if you hit Control+C or it crashes
             best_path = checkpoint_callback.best_model_path
-            if best_path and os.path.exists(best_path):
+            
+            # [NaN Shield] Check if the current metrics are valid before saving
+            current_loss = trainer.callback_metrics.get("train_loss_step")
+            is_nan = current_loss is not None and torch.isnan(current_loss)
+            
+            if is_nan:
+                print("\n[CRITICAL] Loss is NaN. Skipping final save to prevent poisoning.")
+            elif best_path and os.path.exists(best_path):
                 # 1. Save a clean dated copy for the user
                 current_date = datetime.datetime.now().strftime("%Y-%m-%d")
                 human_dated_name = f"final_water_diffusion_model_{current_date}.ckpt"
