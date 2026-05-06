@@ -12,6 +12,8 @@
 *.parquet
 *.duckdb
 data/
+scratch/
+WriteUp/
 
 # Targets
 _targets/
@@ -59,5 +61,6 @@ models/
 *.yml
 *.scss
 *.qmd
+Presentation/Presentation.qmd
 
 README

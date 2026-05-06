@@ -10,7 +10,6 @@ import argparse
 import gc
 import shutil
 
-# Ensure we can import the dataloader
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 dataset_mod = importlib.import_module('03_export_to_parquet')
 get_dataloader = dataset_mod.get_dataloader
@@ -97,7 +96,7 @@ class DiffusionModel(nn.Module):
             nn.SiLU(),
             nn.Linear(64, 64)
         )
-        # Dual-stream: specialized branches that both see the full context
+        # Dual-stream architecture
         self.unet_in = UNet1D(cond_dim=64+128) # time + full_cond
         self.unet_out = UNet1D(cond_dim=64+128) 
         
@@ -117,15 +116,12 @@ class DiffusionModel(nn.Module):
         
         if t.ndim == 0: t = t.unsqueeze(0)
 
-        # Normalize time to [0, 1] to prevent gradient explosion from raw integers
         t_norm = t.float().view(-1, 1) / 1000.0
         t_emb = self.time_mlp(t_norm) # [B, 64]
         
-        # Global pooling of conditions to get a sequence-level embedding
         c_in_emb = self.c_in_enc(c_in.mean(dim=-1))
         c_out_emb = self.c_out_enc(c_out.mean(dim=-1))
         
-        # Concatenate so BOTH streams know the calendar/time AND the weather
         full_cond = torch.cat([c_in_emb, c_out_emb], dim=1) # [B, 128]
         
         eps_in = self.unet_in(x, t_emb, full_cond)
@@ -166,7 +162,6 @@ class LitDiffusion(pl.LightningModule):
         
         self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
         
-        # NaN Shield: Immediate stop if loss explodes
         if torch.isnan(loss):
             raise ValueError("NaN loss detected! Stopping training to prevent checkpoint poisoning.")
             
@@ -254,7 +249,6 @@ if __name__ == "__main__":
         checkpoint_dir = os.path.join(os.getcwd(), "models")
         ckpt_list = glob.glob(os.path.join(checkpoint_dir, "*.ckpt"))
         
-        # Filter out 'last.ckpt' to avoid potential NaN-corrupted states
         versioned_ckpts = [c for c in ckpt_list if "last.ckpt" not in os.path.basename(c)]
         
         latest_ckpt = None
@@ -319,19 +313,16 @@ if __name__ == "__main__":
             # This block runs even if you hit Control+C or it crashes
             best_path = checkpoint_callback.best_model_path
             
-            # [NaN Shield] Check if the current metrics are valid before saving
             current_loss = trainer.callback_metrics.get("train_loss_step")
             is_nan = current_loss is not None and torch.isnan(current_loss)
             
             if is_nan:
                 print("\n[CRITICAL] Loss is NaN. Skipping final save to prevent poisoning.")
             elif best_path and os.path.exists(best_path):
-                # 1. Save a clean dated copy for the user
                 current_date = datetime.datetime.now().strftime("%Y-%m-%d")
                 human_dated_name = f"final_water_diffusion_model_{current_date}.ckpt"
                 shutil.copyfile(best_path, human_dated_name)
                 
-                # 2. Save a generic copy for the pipeline scripts
                 shutil.copyfile(best_path, "final_water_diffusion_model.ckpt")
                 
                 print(f"\n[DONE] Training exit handled.")

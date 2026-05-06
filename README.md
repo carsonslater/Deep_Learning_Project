@@ -55,8 +55,8 @@ The model is conditioned on two explicit streams of information to separate huma
     * `snow_24h`: 24-hour rolling sum of snowfall.
     * `gdd_7d`: 7-day rolling sum of Growing Degree Days.
 
-#### 1.2 Rolling Windows (Translation Invariance)
-Instead of disjoint daily windows, the pipeline extracts sequences using a **rolling stride of 1 interval**. This provides massive data augmentation and forces the model to learn *Translation Invariance*—understanding what the shape of a toilet flush or shower looks like structurally, regardless of what index it occupies in the 96-step sequence.
+#### 1.2 Temporal Sampling
+The pipeline extracts sequences using **disjoint daily windows** across 2023 and 2024. This ensures each training sample represents a physically consistent 24-hour profile and prevents temporal leakage that would occur with overlapping strides.
 
 ### 2. Zero-Inflated Dual-Track Representation
 

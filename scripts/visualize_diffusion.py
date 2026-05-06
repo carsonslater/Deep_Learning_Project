@@ -31,14 +31,6 @@ def main():
     # Instantiate one of the UNet streams
     model = train_mod.UNet1D(cond_dim=cond_dim)
     
-    # UNet1D.forward(self, x, t_emb, c)
-    # x: [B, 2, 96]
-    # t_emb: [B, 64]
-    # c: [B, 128]
-    # Wait, looking at UNet1D.forward:
-    # cond = torch.cat([t_emb, c], dim=1)
-    
-    # Let's wrap it to take a single input for the visualization tool
     class UNetWrapper(torch.nn.Module):
         def __init__(self, unet):
             super().__init__()
@@ -87,13 +79,11 @@ def main():
         save_path_torchview = "images/diffusion_unet_u_shape"
         print(f"Generating high-fidelity U-shape diagram using torchview...")
         try:
-            # We need to provide dummy inputs for the trace
             batch_size = 1
             x = torch.randn(batch_size, 2, 96)
             t_emb = torch.randn(batch_size, 64)
             c = torch.randn(batch_size, 128)
             
-            # draw_graph will trace the functional graph and show the skip connections
             model_graph = draw_graph(
                 model, 
                 input_data=[x, t_emb, c],

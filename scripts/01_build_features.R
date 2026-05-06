@@ -13,7 +13,6 @@ source("scripts/utils.R")
 # Create output directory
 dir.create("data/features", recursive = TRUE, showWarnings = FALSE)
 
-# 1. Get meter files from the raw parquet store
 meter_files <- fs::dir_ls("data/parquet/", glob = "*.parquet")
 meter_files <- meter_files[!stringr::str_detect(meter_files, "climate_summary.parquet")]
 
@@ -84,7 +83,6 @@ build_features <- function(df) {
   return(df)
 }
 
-# 2. Process meter function
 process_meter_file <- function(f) {
   fname <- fs::path_file(f)
   mid <- stringr::str_extract(fname, "(?<=meter_)[0-9]+")
@@ -102,12 +100,10 @@ process_meter_file <- function(f) {
   return(TRUE)
 }
 
-# 3. Set up parallel plan
 n_workers <- max(1, parallelly::availableCores() - 1)
 cat("Utilizing", n_workers, "cores for feature generation.\n")
 future::plan(multisession, workers = n_workers)
 
-# 4. Run extraction with progress tracking
 cat("Starting feature generation for", length(meter_files), "files...\n")
 
 total_files <- length(meter_files)

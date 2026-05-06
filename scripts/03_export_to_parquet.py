@@ -65,7 +65,7 @@ class WaterDataset(IterableDataset):
             x_arr = np.stack([occurrence_mask, log_normalised], axis=1)
             
             # Apply Normalization to c_in (Lagged usage features: indices 6-11)
-            # 🚨 FIX: Apply masking here too to prevent NaN/Inf from log1p(0) or corrupted data
+            # Masking to prevent NaN/Inf from log1p(0)
             lag_usage = c_in_arr[:, 6:12, :]
             lag_mask = (lag_usage > 0.0).astype(np.float32)
             c_in_arr[:, 6:12, :] = np.where(

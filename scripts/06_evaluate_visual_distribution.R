@@ -49,14 +49,10 @@ compile_real_data <- function(directory_path, target_doy, n_homes) {
 #' @param n Number of samples (homes) to generate for these conditions
 #' @return A tibble of synthetic traces matching real data structure
 generate_diffusion_samples <- function(real_covariates, n) {
-  # In a production environment, this function would call the Python diffusion model
-  # passing the real_covariates (temperature, seasonal sin/cos, etc.)
+  # Call Python diffusion model or simulate matching traces
   
-  # For this evaluation script, we simulate samples that 'carry over' the 
-  # climate signal from the covariates.
+  # Simulate samples matching covariates
   
-  # Extract temperature signal (assuming c_out contains temp_c)
-  # We'll use the mean temperature profile of the day to scale the synthetic usage
   daily_temp_profile <- real_covariates |>
     dplyr::group_by(time) |>
     dplyr::summarize(temp_c = mean(temp_c, na.rm = TRUE), .groups = "drop")
@@ -97,7 +93,6 @@ assess_distributions <- function(real_data, synthetic_data) {
       time_of_day = as.POSIXct(format(time, "%H:%M:%S"), format = "%H:%M:%S", tz = "UTC")
     )
 
-  # 1. Trace Visualization
   mean_usage <- combined_data |>
     dplyr::group_by(source, time_of_day) |>
     dplyr::summarize(mean_usage = mean(usage, na.rm = TRUE), .groups = "drop")
@@ -124,8 +119,6 @@ assess_distributions <- function(real_data, synthetic_data) {
 
   print(trace_plot)
 
-  # 2. Wasserstein Distance & Densities
-  # Filter to strictly non-zero usage values
   non_zero_data <- combined_data |>
     dplyr::filter(usage > 0)
 
